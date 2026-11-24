@@ -1,0 +1,5 @@
+#include <windows.h>
+
+// IntelMSR.bin 是 PawnIO 的官方模块（Intel MSR 读写），随程序内嵌，运行时从资源加载。
+// 来源：LibreHardwareMonitor 内嵌的 LibreHardwareMonitor.Resources.PawnIo.IntelMSR.bin
+101 RCDATA "res\\IntelMSR.bin"

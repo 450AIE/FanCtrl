@@ -1,0 +1,20 @@
+# 构建产物
+build/
+*.obj
+*.res
+*.exe
+*.pdb
+*.ilk
+
+# 运行时生成
+settings.ini
+fan_debug.log
+
+# 开发辅助（本地截图与测试脚本）
+run_shot.ps1
+crop.ps1
+test_click.ps1
+*.png
+
+# 允许文档截图
+!docs/*.png
