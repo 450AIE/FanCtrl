@@ -7,6 +7,7 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cwchar>
@@ -91,9 +92,11 @@ static void HLine(HDC dc, int x1, int x2, int y, COLORREF c) {
     DeleteObject(p);
 }
 
-// 温度 -> 像素
-static int PlotX(int tempC) {
-    double t = (double)(tempC - kTempMin) / (kTempMax - kTempMin);
+// 功耗 -> 像素
+static int PlotX(double watt) {
+    double t = watt / (double)kPEndW;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
     return L.plot.left + (int)(t * (L.plot.right - L.plot.left) + 0.5);
 }
 // 转速 -> 像素
@@ -144,7 +147,12 @@ static void ComputeLayout(int w, int h) {
 static void DrawCurveCard(HDC dc) {
     FillRound(dc, L.card, S(12), C_CARD, C_BORDER);
 
-    // 网格
+    // 标题
+    RECT rt = { L.card.right - S(180), L.card.top + S(2),
+                L.card.right - S(18), L.card.top + S(16) };
+    Text(dc, L"功耗 → 转速", rt, g_fSmall, C_MUTED, DT_RIGHT | DT_TOP | DT_SINGLELINE);
+
+    // Y 轴转速刻度
     const int rpms[5] = { 0, 1500, 3000, 4500, 6000 };
     for (int i = 0; i < 5; i++) {
         int y = PlotY(rpms[i]);
@@ -155,9 +163,10 @@ static void DrawCurveCard(HDC dc) {
         Text(dc, buf, r, g_fSmall, C_MUTED, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
 
-    for (int t = kTempMin; t <= kTempMax; t += kTempStep) {
-        int x = PlotX(t);
-        if (t != kTempMin && t != kTempMax) {
+    // X 轴功耗刻度
+    for (int w = 0; w <= kPEndW; w += 10) {
+        int x = PlotX((double)w);
+        if (w != 0 && w != kPEndW) {
             HPEN p = CreatePen(PS_SOLID, 1, C_GRID);
             HGDIOBJ op = SelectObject(dc, p);
             MoveToEx(dc, x, L.plot.top, NULL);
@@ -165,30 +174,30 @@ static void DrawCurveCard(HDC dc) {
             SelectObject(dc, op);
             DeleteObject(p);
         }
-        if ((t - kTempMin) % 20 == 0) {
+        if (w % 20 == 0 || w == kPEndW) {
             wchar_t buf[16];
-            swprintf_s(buf, L"%d°", t);
+            swprintf_s(buf, L"%dW", w);
             RECT r = { x - S(20), L.plot.bottom + S(4), x + S(20), L.plot.bottom + S(22) };
             Text(dc, buf, r, g_fSmall, C_MUTED, DT_CENTER | DT_TOP | DT_SINGLELINE);
         }
     }
 
     // 填充区域
-    POINT poly[kPointCount + 2];
-    for (int i = 0; i < kPointCount; i++) {
-        poly[i].x = PlotX(kTempMin + i * kTempStep);
-        poly[i].y = PlotY(g_app.points[i]);
+    POINT poly[kPPointCount + 2];
+    for (int i = 0; i < kPPointCount; i++) {
+        poly[i].x = PlotX((double)kPX[i]);
+        poly[i].y = PlotY(g_app.pPoints[i]);
     }
-    poly[kPointCount].x     = PlotX(kTempMax);
-    poly[kPointCount].y     = L.plot.bottom;
-    poly[kPointCount + 1].x = PlotX(kTempMin);
-    poly[kPointCount + 1].y = L.plot.bottom;
+    poly[kPPointCount].x     = PlotX((double)kPEndW);
+    poly[kPPointCount].y     = L.plot.bottom;
+    poly[kPPointCount + 1].x = PlotX(0.0);
+    poly[kPPointCount + 1].y = L.plot.bottom;
 
     HBRUSH fill = CreateSolidBrush(RGB(240, 246, 252));
     HPEN noPen = CreatePen(PS_NULL, 0, RGB(0, 0, 0));
     HGDIOBJ ob = SelectObject(dc, fill);
     HGDIOBJ op = SelectObject(dc, noPen);
-    Polygon(dc, poly, kPointCount + 2);
+    Polygon(dc, poly, kPPointCount + 2);
     SelectObject(dc, ob);
     SelectObject(dc, op);
     DeleteObject(fill);
@@ -197,21 +206,20 @@ static void DrawCurveCard(HDC dc) {
     // 折线
     HPEN line = CreatePen(PS_SOLID, S(2), C_ACCENT);
     op = SelectObject(dc, line);
-    for (int i = 0; i < kPointCount; i++) {
-        int x = PlotX(kTempMin + i * kTempStep);
-        int y = PlotY(g_app.points[i]);
+    for (int i = 0; i < kPPointCount; i++) {
+        int x = PlotX((double)kPX[i]);
+        int y = PlotY(g_app.pPoints[i]);
         if (i == 0) MoveToEx(dc, x, y, NULL);
         else        LineTo(dc, x, y);
     }
     SelectObject(dc, op);
     DeleteObject(line);
 
-    // 当前温度标记
-    if (g_app.temp >= 0) {
-        int t = g_app.temp;
-        if (t < kTempMin) t = kTempMin;
-        if (t > kTempMax) t = kTempMax;
-        int x = PlotX(t);
+    // 当前功耗标记
+    if (g_app.powerOk && g_app.smoothW > 0.3) {
+        double w = g_app.smoothW;
+        if (w > kPEndW) w = kPEndW;
+        int x = PlotX(w);
         HPEN dash = CreatePen(PS_DASH, 1, C_RED);
         op = SelectObject(dc, dash);
         MoveToEx(dc, x, L.plot.top, NULL);
@@ -219,7 +227,7 @@ static void DrawCurveCard(HDC dc) {
         SelectObject(dc, op);
         DeleteObject(dash);
 
-        int y = PlotY(CurveTargetRpm(t));
+        int y = PlotY(PowerTargetRpm(g_app.smoothW));
         HBRUSH rb = CreateSolidBrush(C_RED);
         ob = SelectObject(dc, rb);
         op = SelectObject(dc, GetStockObject(NULL_PEN));
@@ -230,9 +238,9 @@ static void DrawCurveCard(HDC dc) {
     }
 
     // 节点
-    for (int i = 0; i < kPointCount; i++) {
-        int x = PlotX(kTempMin + i * kTempStep);
-        int y = PlotY(g_app.points[i]);
+    for (int i = 0; i < kPPointCount; i++) {
+        int x = PlotX((double)kPX[i]);
+        int y = PlotY(g_app.pPoints[i]);
         HBRUSH wb = CreateSolidBrush(C_CARD);
         HPEN bp = CreatePen(PS_SOLID, S(2), C_ACCENT);
         ob = SelectObject(dc, wb);
@@ -281,67 +289,76 @@ static void DrawRightPanel(HDC dc) {
     int w = L.right.right - L.right.left - S(32);
     wchar_t buf[64];
 
+    // 主指标：封装功耗
     RECT r = { x, y, x + w, y + S(16) };
-    Text(dc, L"CPU 温度", r, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_SINGLELINE);
+    Text(dc, L"封装功耗（CPU + 核显）", r, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_SINGLELINE);
     y += S(18);
 
-    if (g_app.temp >= 0) swprintf_s(buf, L"%d ℃", g_app.temp);
-    else                 swprintf_s(buf, L"-- ℃");
+    double pw = g_app.powerOk ? g_app.pkgW : -1.0;
+    if (pw >= 0) swprintf_s(buf, L"%.0f W", pw);
+    else         swprintf_s(buf, L"-- W");
     r = { x, y, x + w, y + S(36) };
-    COLORREF tc = C_TEXT;
-    if (g_app.temp >= 0 && g_app.temp >= g_app.safetyTemp) tc = C_RED;
-    Text(dc, buf, r, g_fBig, tc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-    y += S(40);
+    COLORREF pc = C_TEXT;
+    if (pw >= 60) pc = C_RED;
+    else if (pw >= 40) pc = C_AMBER;
+    Text(dc, buf, r, g_fBig, pc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    y += S(38);
+
+    if (g_app.powerOk)
+        swprintf_s(buf, L"CPU %.0f W    核显 %.0f W", g_app.cpuW, g_app.gpuW);
+    else
+        swprintf_s(buf, L"功耗计数器不可用");
+    r = { x, y, x + w, y + S(16) };
+    Text(dc, buf, r, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_SINGLELINE);
+    y += S(20);
 
     HLine(dc, x, x + w, y, C_GRID);
     y += S(12);
 
     struct Row { const wchar_t* k; wchar_t v[32]; COLORREF c; };
     Row rows[5];
-    rows[0].k = L"目标转速";
-    if (g_app.target >= 0) swprintf_s(rows[0].v, L"%d rpm", g_app.target);
-    else                   swprintf_s(rows[0].v, L"--");
-    rows[0].c = C_ACCENT;
 
-    rows[1].k = L"风扇 1";
-    if (g_app.fan1 >= 0) swprintf_s(rows[1].v, L"%d rpm", g_app.fan1);
-    else                 swprintf_s(rows[1].v, L"--");
-    rows[1].c = C_TEXT;
+    rows[0].k = L"CPU 温度";
+    if (g_app.temp >= 0) swprintf_s(rows[0].v, L"%d ℃", g_app.temp);
+    else                 swprintf_s(rows[0].v, L"-- ℃");
+    rows[0].c = (g_app.temp >= 0 && g_app.temp >= g_app.forceTemp) ? C_RED : C_TEXT;
 
-    rows[2].k = L"风扇 2";
-    if (g_app.fan2 >= 0) swprintf_s(rows[2].v, L"%d rpm", g_app.fan2);
+    rows[1].k = L"目标转速";
+    if (g_app.target >= 0) swprintf_s(rows[1].v, L"%d rpm", g_app.target);
+    else                   swprintf_s(rows[1].v, L"--");
+    rows[1].c = C_ACCENT;
+
+    rows[2].k = L"风扇 1";
+    if (g_app.fan1 >= 0) swprintf_s(rows[2].v, L"%d rpm", g_app.fan1);
     else                 swprintf_s(rows[2].v, L"--");
     rows[2].c = C_TEXT;
 
-    rows[3].k = L"控制状态";
-    wcsncpy_s(rows[3].v, g_app.status, 31);
-    rows[3].c = g_app.manual ? C_AMBER : C_GREEN;
+    rows[3].k = L"风扇 2";
+    if (g_app.fan2 >= 0) swprintf_s(rows[3].v, L"%d rpm", g_app.fan2);
+    else                 swprintf_s(rows[3].v, L"--");
+    rows[3].c = C_TEXT;
 
-    rows[4].k = L"安全阈值";
-    swprintf_s(rows[4].v, L"%d ℃", g_app.safetyTemp);
-    rows[4].c = C_MUTED;
+    rows[4].k = L"控制状态";
+    wcsncpy_s(rows[4].v, g_app.status, 31);
+    rows[4].c = g_app.manual ? C_AMBER : C_GREEN;
 
     for (int i = 0; i < 5; i++) {
         RECT rk = { x, y, x + w / 2, y + S(20) };
         RECT rv = { x + w / 2, y, x + w, y + S(20) };
         Text(dc, rows[i].k, rk, g_fSmall, C_MUTED, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         Text(dc, rows[i].v, rv, g_fValue, rows[i].c, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-        y += S(26);
+        y += S(24);
     }
 
     // 使用说明
-    y += S(10);
+    y += S(6);
     HLine(dc, x, x + w, y, C_GRID);
-    y += S(12);
-    RECT rh = { x, y, x + w, y + S(16) };
-    Text(dc, L"使用说明", rh, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_SINGLELINE);
-    y += S(20);
-    RECT rb = { x, y, x + w, y + S(116) };
-    Text(dc, L"· 拖动圆点设定该温度下的目标转速\n"
-             L"· 曲线值为 0 表示交还 EC 控制\n"
-             L"· 点保存写入 settings.ini\n"
-             L"· 关闭或最小化会缩到托盘\n"
-             L"· 托盘图标右键可切换模式",
+    y += S(10);
+    RECT rb = { x, y, x + w, y + S(80) };
+    Text(dc, L"· 拖动圆点设定该功耗下的转速\n"
+             L"· 30W 以下固定最低转速\n"
+             L"· 88℃ 以上自动补偿转速\n"
+             L"· 关闭或最小化会缩到托盘",
          rb, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_WORDBREAK);
 
     // 勾选项
@@ -359,7 +376,7 @@ static void DrawButton(HDC dc, RECT r, const wchar_t* label, bool active, bool a
 }
 
 static void DrawBottomBar(HDC dc) {
-    DrawButton(dc, L.btnCurve, L"曲线", g_app.mode == MODE_CURVE, false);
+    DrawButton(dc, L.btnCurve, L"功耗", g_app.mode == MODE_CURVE, false);
     DrawButton(dc, L.btnAuto,  L"自动", g_app.mode == MODE_AUTO,  false);
     DrawButton(dc, L.btnFull,  L"全速", g_app.mode == MODE_FULL,  false);
     DrawButton(dc, L.btnSave,    L"保存曲线", false, false);
@@ -395,11 +412,26 @@ static void Paint(HWND hwnd) {
 }
 
 // ---------------- 控制逻辑 ----------------
+// 功耗主控：目标转速完全由封装功耗决定
+//   上升沿 1.5s 去抖、800 rpm/s
+//   下降沿 5s 去抖、300 rpm/s
+// 温度只在 88℃ 以上补转速、92℃ 交还 EC（正常不会触发）
+static int  s_applied  = -1;   // 当前实际下发的目标转速
+static int  s_upTick   = 0;
+static int  s_downTick = 0;
+static bool s_overTemp = false;
+
+static void ResetPowerCtrl() {
+    s_applied = -1;
+    s_upTick = s_downTick = 0;
+}
+
 static void ApplyControl() {
     if (!g_app.fanOk) { wcscpy_s(g_app.status, L"风扇接口不可用"); return; }
 
     if (g_app.mode == MODE_AUTO) {
         if (g_app.manual) { FanRelease(); g_app.manual = false; g_app.lastF1 = g_app.lastF2 = -1; }
+        ResetPowerCtrl();
         wcscpy_s(g_app.status, L"交还 EC");
         g_app.target = -1;
         return;
@@ -413,38 +445,70 @@ static void ApplyControl() {
             g_app.lastF1 = kFan1MaxRpm;
             g_app.lastF2 = kFan2MaxRpm;
         }
+        ResetPowerCtrl();
         wcscpy_s(g_app.status, L"全速运行");
         g_app.target = kRpmMax;
         return;
     }
 
-    // MODE_CURVE
-    if (g_app.temp < 0) { wcscpy_s(g_app.status, L"温度读取失败"); return; }
-
-    if (g_app.temp >= g_app.safetyTemp) {
+    // ---- MODE_CURVE：功耗控制 ----
+    if (!g_app.powerOk) {
         if (g_app.manual) { FanRelease(); g_app.manual = false; g_app.lastF1 = g_app.lastF2 = -1; }
+        ResetPowerCtrl();
+        wcscpy_s(g_app.status, L"功耗不可用 · 已交还 EC");
+        g_app.target = -1;
+        return;
+    }
+
+    // 超温保护：带 4℃ 回差，避免在阈值上反复横跳
+    if (g_app.temp >= g_app.safetyTemp) s_overTemp = true;
+    else if (g_app.temp <= g_app.safetyTemp - 4) s_overTemp = false;
+
+    if (s_overTemp) {
+        if (g_app.manual) { FanRelease(); g_app.manual = false; g_app.lastF1 = g_app.lastF2 = -1; }
+        ResetPowerCtrl();
         wcscpy_s(g_app.status, L"超温保护 · 已交还 EC");
         g_app.target = -1;
         return;
     }
 
-    int tgt = CurveTargetRpm(g_app.temp);
-    g_app.target = tgt;
+    int want = PowerTargetRpm(g_app.smoothW);
+    bool forced = false;
 
-    if (tgt <= 0) {
-        g_app.zeroCount++;
-        if (g_app.manual && g_app.zeroCount >= 2) {
-            FanRelease();
-            g_app.manual = false;
-            g_app.lastF1 = g_app.lastF2 = -1;
-        }
-        wcscpy_s(g_app.status, L"低温 · 交还 EC");
-        return;
+    // 温度偏高才补转速，正常工况下不会进来
+    if (g_app.temp >= g_app.forceTemp) {
+        int force = 4000 + (g_app.temp - g_app.forceTemp) * 300;
+        if (force > want) { want = force; forced = true; }
     }
-    g_app.zeroCount = 0;
+    if (want < 800)  want = 800;
+    if (want > kRpmMax) want = kRpmMax;
 
-    int f1 = tgt * kFan1MaxRpm / kRpmMax;
-    int f2 = tgt * kFan2MaxRpm / kRpmMax;
+    if (!g_app.manual || s_applied < 0) {
+        // 首次接管从当前实际转速起步，避免一上来就跳变
+        s_applied = (g_app.fan1 > 0) ? g_app.fan1 : 2000;
+        s_upTick = s_downTick = 0;
+    }
+
+    if (want > s_applied) {
+        s_downTick = 0;
+        if (++s_upTick >= 3) {              // 1.5s
+            s_applied += 400;               // 800 rpm/s
+            if (s_applied > want) s_applied = want;
+        }
+    } else if (want < s_applied) {
+        s_upTick = 0;
+        if (++s_downTick >= 8) {            // 4s
+            s_applied -= 180;               // 360 rpm/s
+            if (s_applied < want) s_applied = want;
+        }
+    } else {
+        s_upTick = s_downTick = 0;
+    }
+
+    g_app.target = s_applied;
+
+    int f1 = s_applied * kFan1MaxRpm / kRpmMax;
+    int f2 = s_applied * kFan2MaxRpm / kRpmMax;
     if (f1 > 0 && f1 < 800) f1 = 800;
     if (f2 > 0 && f2 < 800) f2 = 800;
 
@@ -460,15 +524,30 @@ static void ApplyControl() {
             g_app.manual = true;
             g_app.lastF1 = f1;
             g_app.lastF2 = f2;
-            wcscpy_s(g_app.status, L"曲线控制中");
         } else {
             wcscpy_s(g_app.status, L"写入失败");
+            return;
         }
     }
+    wcscpy_s(g_app.status, forced ? L"高温补偿中" : L"功耗控制中");
 }
 
 static void Poll() {
     g_app.temp = SensorReadTempC();
+
+    double p = 0, c = 0, gp = 0;
+    if (SensorReadPower(&p, &c, &gp)) {
+        g_app.pkgW = p;
+        g_app.cpuW = c;
+        g_app.gpuW = gp;
+        g_app.powerOk = true;
+
+        // 非对称平滑：上升快、下降慢，避免转速跟着尖峰抖
+        if (g_app.smoothW <= 0.1)      g_app.smoothW = p;
+        else if (p > g_app.smoothW)    g_app.smoothW += (p - g_app.smoothW) * 0.5;
+        else                           g_app.smoothW += (p - g_app.smoothW) * 0.2;
+    }
+
     if (g_app.fanOk) {
         g_app.fan1 = FanReadRpm(0);
         g_app.fan2 = FanReadRpm(1);
@@ -484,9 +563,9 @@ static bool PtIn(RECT r, POINT p) {
 
 static int HitPoint(POINT p) {
     if (p.y < L.plot.top - S(12) || p.y > L.plot.bottom + S(12)) return -1;
-    int best = -1, bestDx = S(14);
-    for (int i = 0; i < kPointCount; i++) {
-        int x = PlotX(kTempMin + i * kTempStep);
+    int best = -1, bestDx = S(16);
+    for (int i = 0; i < kPPointCount; i++) {
+        int x = PlotX((double)kPX[i]);
         int dx = abs(p.x - x);
         if (dx < bestDx) { bestDx = dx; best = i; }
     }
@@ -494,7 +573,7 @@ static int HitPoint(POINT p) {
 }
 
 static void OnClick(POINT p) {
-    if (PtIn(L.btnCurve, p)) { g_app.mode = MODE_CURVE; g_app.zeroCount = 0; Poll(); return; }
+    if (PtIn(L.btnCurve, p)) { g_app.mode = MODE_CURVE; ResetPowerCtrl(); g_app.zeroCount = 0; Poll(); return; }
     if (PtIn(L.btnAuto, p))  { g_app.mode = MODE_AUTO; Poll(); return; }
     if (PtIn(L.btnFull, p))  { g_app.mode = MODE_FULL; Poll(); return; }
     if (PtIn(L.btnSave, p)) {
@@ -581,7 +660,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
         Poll();
-        SetTimer(hwnd, 1, 1000, NULL);
+        SetTimer(hwnd, 1, 500, NULL);
         return 0;
     }
     case WM_SIZE:
@@ -603,7 +682,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         Poll();
         {
             static int tick = 0;
-            if (++tick % 5 == 0) TrayUpdateTip();
+            if (++tick % 10 == 0) TrayUpdateTip();
         }
         return 0;
     case WM_SYSCOMMAND:
@@ -617,6 +696,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_FANCTRL_MODE:
         g_app.mode = (RunMode)wp;
+        ResetPowerCtrl();
         g_app.zeroCount = 0;
         Poll();
         return 0;
@@ -646,7 +726,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_MOUSEMOVE: {
         if (g_drag >= 0) {
             POINT p = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
-            g_app.points[g_drag] = RpmFromY(p.y);
+            g_app.pPoints[g_drag] = RpmFromY(p.y);
             InvalidateRect(hwnd, NULL, FALSE);
             return 0;
         }

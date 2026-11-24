@@ -23,7 +23,18 @@ void ConfigLoad() {
         wchar_t* p = line;
         while (*p == L' ' || *p == L'\t') p++;
 
-        if (wcsncmp(p, L"points=", 7) == 0) {
+        if (wcsncmp(p, L"ppoints=", 8) == 0) {
+            int v[kPPointCount] = { 0 };
+            int n = swscanf_s(p + 8, L"%d,%d,%d,%d,%d,%d,%d",
+                              &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]);
+            if (n == kPPointCount) {
+                for (int i = 0; i < kPPointCount; i++) {
+                    if (v[i] < 0) v[i] = 0;
+                    if (v[i] > kRpmMax) v[i] = kRpmMax;
+                    g_app.pPoints[i] = v[i];
+                }
+            }
+        } else if (wcsncmp(p, L"points=", 7) == 0) {
             int v[kPointCount] = { 0 };
             int n = swscanf_s(p + 7, L"%d,%d,%d,%d,%d,%d,%d,%d,%d",
                               &v[0], &v[1], &v[2], &v[3], &v[4],
@@ -38,6 +49,9 @@ void ConfigLoad() {
         } else if (wcsncmp(p, L"safety=", 7) == 0) {
             int v = 0;
             if (swscanf_s(p + 7, L"%d", &v) == 1 && v >= 60 && v <= 110) g_app.safetyTemp = v;
+        } else if (wcsncmp(p, L"force=", 6) == 0) {
+            int v = 0;
+            if (swscanf_s(p + 6, L"%d", &v) == 1 && v >= 60 && v <= 110) g_app.forceTemp = v;
         } else if (wcsncmp(p, L"minDelta=", 9) == 0) {
             int v = 0;
             if (swscanf_s(p + 9, L"%d", &v) == 1 && v >= 0 && v <= 500) g_app.minWriteDelta = v;
@@ -56,11 +70,15 @@ void ConfigSave() {
     FILE* f = nullptr;
     if (_wfopen_s(&f, path, L"wt, ccs=UTF-8") != 0 || !f) return;
 
+    fwprintf(f, L"ppoints=%d,%d,%d,%d,%d,%d,%d\n",
+             g_app.pPoints[0], g_app.pPoints[1], g_app.pPoints[2], g_app.pPoints[3],
+             g_app.pPoints[4], g_app.pPoints[5], g_app.pPoints[6]);
     fwprintf(f, L"points=%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
              g_app.points[0], g_app.points[1], g_app.points[2],
              g_app.points[3], g_app.points[4], g_app.points[5],
              g_app.points[6], g_app.points[7], g_app.points[8]);
     fwprintf(f, L"safety=%d\n", g_app.safetyTemp);
+    fwprintf(f, L"force=%d\n", g_app.forceTemp);
     fwprintf(f, L"minDelta=%d\n", g_app.minWriteDelta);
     fwprintf(f, L"topmost=%d\n", g_app.topmost ? 1 : 0);
     fclose(f);

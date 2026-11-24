@@ -27,6 +27,23 @@
 static HANDLE s_dev = INVALID_HANDLE_VALUE;
 static int    s_tjMax = 100;
 
+// ---- 功耗采样状态 ----
+// PKG  0x611 = 封装总功耗（CPU + 核显 + 内存 + uncore）
+// PP0  0x639 = CPU 核心
+// PP1  0x641 = 核显
+static bool     s_powInit  = false;
+static uint64_t s_prevE[3] = { 0, 0, 0 };
+static double   s_prevTime = 0.0;
+static double   s_eUnitJ   = 1.0 / 16384.0;   // RAPL 能量单位，SensorInit 中按 MSR 0x606 重算
+
+static double QpcSec() {
+    static LARGE_INTEGER f = {};
+    if (!f.QuadPart) QueryPerformanceFrequency(&f);
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    return (double)c.QuadPart / (double)f.QuadPart;
+}
+
 static bool LoadModuleFromResource(HANDLE dev) {
     HRSRC res = FindResourceW(NULL, MAKEINTRESOURCEW(101), RT_RCDATA);
     if (!res) return false;
@@ -99,6 +116,19 @@ bool SensorInit() {
         int tj = (int)((v >> 16) & 0xFF);
         if (tj > 0 && tj <= 120) s_tjMax = tj;
     }
+
+    // RAPL 能量单位：1 / 2^(bits 12:8) 焦耳
+    if (ReadMsr(0x606, &v)) {
+        int ee = (int)((v >> 8) & 0x1F);
+        if (ee > 0 && ee < 31) s_eUnitJ = 1.0 / (double)(1 << ee);
+    }
+
+    // 试读一次功耗，确认这个平台支持
+    double a, b, c;
+    s_powInit = false;
+    if (SensorReadPower(&a, &b, &c)) {
+        // 首次调用只建立基线，返回 false，正常
+    }
     return true;
 }
 
@@ -112,9 +142,46 @@ int SensorReadTempC() {
     return s_tjMax - delta;
 }
 
+// 读 RAPL 各域能量计数器，两次采样差除以时间得到瓦数
+// 首次调用只建立基线，返回 false
+bool SensorReadPower(double* pkg, double* cpu, double* gpu) {
+    if (s_dev == INVALID_HANDLE_VALUE) return false;
+
+    uint64_t e[3] = {};
+    if (!ReadMsr(0x611, &e[0])) return false;    // PKG
+    if (!ReadMsr(0x639, &e[1])) return false;    // PP0 / cores
+    if (!ReadMsr(0x641, &e[2])) return false;    // PP1 / graphics
+
+    double t = QpcSec();
+    if (!s_powInit) {
+        for (int i = 0; i < 3; i++) s_prevE[i] = e[i];
+        s_prevTime = t;
+        s_powInit = true;
+        return false;
+    }
+
+    double dt = t - s_prevTime;
+    if (dt < 0.05) return false;                 // 间隔太短，噪声大
+
+    double out[3] = {};
+    for (int i = 0; i < 3; i++) {
+        // 32 位计数器回绕：无符号相减自然正确
+        uint32_t d = (uint32_t)(e[i] & 0xFFFFFFFF) - (uint32_t)(s_prevE[i] & 0xFFFFFFFF);
+        out[i] = (double)d * s_eUnitJ / dt;
+        s_prevE[i] = e[i];
+    }
+    s_prevTime = t;
+
+    if (pkg) *pkg = out[0];
+    if (cpu) *cpu = out[1];
+    if (gpu) *gpu = out[2];
+    return true;
+}
+
 void SensorClose() {
     if (s_dev != INVALID_HANDLE_VALUE) {
         CloseHandle(s_dev);
         s_dev = INVALID_HANDLE_VALUE;
     }
+    s_powInit = false;
 }

@@ -23,3 +23,6 @@ test_click.ps1
 *.ps1
 *.bmp
 *.log
+
+# 允许提交 tools 下的测试脚本
+!tools/*.ps1
