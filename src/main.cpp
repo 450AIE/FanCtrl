@@ -101,21 +101,35 @@ static int PlotX(double watt) {
     if (t > 1) t = 1;
     return L.plot.left + (int)(t * (L.plot.right - L.plot.left) + 0.5);
 }
+// Y 轴纵向分格数。底部 2 格是 0~2000 的省略段：1 格放断裂符号，2000 再往上抬 1 格；
+// 其上每 500 rpm 一格，6000 正好落在顶边
+static int RpmYAxisCells() {
+    return 2 + (kRpmMax - kRpmFloor) / 500;
+}
+
 // 转速 -> 像素
 static int PlotY(int rpm) {
-    double v = (double)rpm / kRpmMax;
-    return L.plot.bottom - (int)(v * (L.plot.bottom - L.plot.top) + 0.5);
+    int h = L.plot.bottom - L.plot.top;
+    if (rpm < 0)       rpm = 0;
+    if (rpm > kRpmMax) rpm = kRpmMax;
+    // 2000 以下的刻度不存在，整段压进最下面 2 格，不与上方档位抢空间
+    double cells = (rpm <= kRpmFloor)
+                 ? (double)rpm / kRpmFloor * 2.0
+                 : 2.0 + (double)(rpm - kRpmFloor) / 500.0;
+    return L.plot.bottom - (int)(cells / RpmYAxisCells() * h + 0.5);
 }
 
 static int RpmFromY(int y) {
     int h = L.plot.bottom - L.plot.top;
-    if (h <= 0) return 0;
-    double v = (double)(L.plot.bottom - y) / h * kRpmMax;
+    if (h <= 0) return kRpmFloor;
+    double cells = (double)(L.plot.bottom - y) / h * RpmYAxisCells();
+    double rpm   = (cells <= 2.0) ? cells / 2.0 * kRpmFloor
+                                  : kRpmFloor + (cells - 2.0) * 500.0;
     // 按 100 转吸附，微调时不用再跟 500 的台阶较劲
-    int rpm = (int)(v / 100.0 + 0.5) * 100;
-    if (rpm < 0) rpm = 0;
-    if (rpm > kRpmMax) rpm = kRpmMax;
-    return rpm;
+    int v = (int)(rpm / 100.0 + 0.5) * 100;
+    if (v < kRpmFloor) v = kRpmFloor;   // 硬件下限，拖不到 2000 以下
+    if (v > kRpmMax)   v = kRpmMax;
+    return v;
 }
 
 // ---------------- 布局 ----------------
@@ -211,14 +225,41 @@ static void DrawCurveCard(HDC dc) {
                 L.card.right - S(18), L.card.top + S(16) };
     Text(dc, L"功耗 → 转速", rt, g_fSmall, C_MUTED, DT_RIGHT | DT_TOP | DT_SINGLELINE);
 
-    // Y 轴转速刻度：500 一格，方便按 100 微调时读位置
-    for (int rpm = 0; rpm <= kRpmMax; rpm += 500) {
+    // Y 轴转速刻度：从硬件下限 2000 起，500 一格，方便按 100 微调时读位置
+    for (int rpm = kRpmFloor; rpm <= kRpmMax; rpm += 500) {
         int y = PlotY(rpm);
         HLine(dc, L.plot.left, L.plot.right, y, C_GRID);
         wchar_t buf[16];
         swprintf_s(buf, L"%d", rpm);
         RECT r = { L.card.left + S(6), y - S(8), L.plot.left - S(6), y + S(8) };
         Text(dc, buf, r, g_fSmall, C_MUTED, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    }
+
+    // 0~2000 没有档位，在最下面那一格画断裂符号表示略过。
+    // 2000 已经抬到它上方一格，读图时不会误以为 2000 就贴在 X 轴上
+    {
+        int y2000  = PlotY(kRpmFloor);
+        int by     = L.plot.bottom - (L.plot.bottom - y2000) / 2;   // 断裂标记所在高度
+        int cx     = (L.card.left + L.plot.left) / 2;
+
+        HPEN bp = CreatePen(PS_SOLID, S(1), C_BORDER);
+        HGDIOBJ ob2 = SelectObject(dc, bp);
+        // 刻度位置先画一小截基准线，再用两道斜杠把它断开
+        MoveToEx(dc, L.card.left + S(8), by, NULL);
+        LineTo(dc, cx - S(5), by);
+        MoveToEx(dc, cx + S(5), by, NULL);
+        LineTo(dc, L.plot.left - S(6), by);
+        // 断裂斜杠
+        HPEN bp2 = CreatePen(PS_SOLID, S(2), C_MUTED);
+        SelectObject(dc, bp2);
+        for (int k = 0; k < 2; k++) {
+            int x0 = cx - S(8) + k * S(8);
+            MoveToEx(dc, x0, by + S(6), NULL);
+            LineTo(dc, x0 + S(6), by - S(6));
+        }
+        SelectObject(dc, ob2);
+        DeleteObject(bp);
+        DeleteObject(bp2);
     }
 
     // X 轴功耗刻度：10W 一格，与圆点一一对应
@@ -238,7 +279,7 @@ static void DrawCurveCard(HDC dc) {
         Text(dc, buf, r, g_fSmall, C_MUTED, DT_CENTER | DT_TOP | DT_SINGLELINE);
     }
 
-    // 填充区域
+    // 填充区域：一直铺到 X 轴，0~2000 的省略段也保持蓝色，避免出现一块突兀的留白
     POINT poly[kPPointCount + 2];
     for (int i = 0; i < kPPointCount; i++) {
         poly[i].x = PlotX((double)kPX[i]);

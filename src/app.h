@@ -7,6 +7,10 @@
 // ---- 转速规格 ----
 constexpr int kRpmMax = 6000;
 
+// 硬件下限。EC 不接受低于这个值的设定，所以 0~2000 之间没有任何可用档位，
+// 曲线图上用断裂符号略过这一段，拖动也不会落到它下面
+constexpr int kRpmFloor = 2000;
+
 // 两只风扇的硬件上限（来自 LENOVO_FAN_TEST_DATA）
 constexpr int kFan1MaxRpm = 5700;
 constexpr int kFan2MaxRpm = 6000;

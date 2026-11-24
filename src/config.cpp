@@ -28,8 +28,8 @@ void ConfigLoad() {
             int n = swscanf_s(p + 8, L"%d,%d,%d,%d,%d,%d,%d,%d",
                               &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7]);
             for (int i = 0; i < n && i < kPPointCount; i++) {
-                if (v[i] < 0) v[i] = 0;
-                if (v[i] > kRpmMax) v[i] = kRpmMax;
+                if (v[i] < kRpmFloor) v[i] = kRpmFloor;   // 低于硬件下限的档位不存在
+                if (v[i] > kRpmMax)   v[i] = kRpmMax;
             }
             if (n == kPPointCount) {
                 for (int i = 0; i < kPPointCount; i++) g_app.pPoints[i] = v[i];
@@ -52,8 +52,8 @@ void ConfigLoad() {
                         }
                     }
                     val = (val + 50) / 100 * 100;
-                    if (val < 0) val = 0;
-                    if (val > kRpmMax) val = kRpmMax;
+                    if (val < kRpmFloor) val = kRpmFloor;
+                    if (val > kRpmMax)   val = kRpmMax;
                     g_app.pPoints[i] = val;
                 }
             }
