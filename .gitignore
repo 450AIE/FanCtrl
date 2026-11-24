@@ -18,3 +18,8 @@ test_click.ps1
 
 # 允许文档截图
 !docs/*.png
+
+# 本地开发脚本
+*.ps1
+*.bmp
+*.log

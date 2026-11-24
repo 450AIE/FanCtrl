@@ -21,11 +21,17 @@ enum RunMode {
     MODE_FULL  = 2    // 全速
 };
 
+// 自定义消息
+#define WM_FANCTRL_TRAY  (WM_APP + 11)   // 托盘回调
+#define WM_FANCTRL_SHOW  (WM_APP + 12)   // 请求显示窗口
+#define WM_FANCTRL_MODE  (WM_APP + 13)   // 请求切换模式（wParam = RunMode）
+
 struct AppState {
     int  points[kPointCount] = { 0, 0, 0, 1800, 2400, 3000, 3800, 4800, 6000 };
     int  safetyTemp          = 92;
     int  minWriteDelta       = 60;
     bool topmost             = false;
+    bool startWithWindows    = false;   // 计划任务状态（运行时查询，不写 ini）
 
     RunMode mode       = MODE_CURVE;
     bool    manual     = false;   // 当前是否处于手动接管状态
@@ -63,6 +69,16 @@ void FanClose();
 // ---- config.cpp ----
 void ConfigLoad();
 void ConfigSave();
+
+// ---- tray.cpp：托盘图标 + 开机自启（计划任务） ----
+bool TrayInit(HWND hwnd);                                    // 创建图标并加入托盘
+void TrayRemove();                                           // 移除托盘图标
+bool TrayHandleMessage(HWND, UINT, WPARAM, LPARAM);           // 返回 true 表示已处理
+void TrayBalloon(const wchar_t* title, const wchar_t* text);  // 气泡提示
+void TrayUpdateTip();                                        // 更新悬停提示
+HICON TrayAppIcon(bool useSmall);                               // 取生成的窗口图标
+bool AutoStartIsEnabled();
+bool AutoStartSet(bool enable);
 
 // ---- 曲线 ----
 inline int CurveTargetRpm(int tempC) {

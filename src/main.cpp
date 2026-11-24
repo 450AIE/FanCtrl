@@ -5,8 +5,10 @@
 
 #include "app.h"
 #include <windowsx.h>
+#include <shellapi.h>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <cwchar>
 
 AppState g_app;
@@ -32,12 +34,13 @@ static HFONT g_fLabel = NULL, g_fSmall = NULL, g_fBig = NULL, g_fValue = NULL;
 
 struct Layout {
     RECT card, plot, right, bottom;
-    RECT btnCurve, btnAuto, btnFull, btnSave, btnRelease, chkTop;
+    RECT btnCurve, btnAuto, btnFull, btnSave, btnRelease, chkTop, chkAuto;
 };
 static Layout L;
 
 static int g_drag = -1;      // 正在拖动的节点索引
 static bool g_tracking = false;
+static bool g_ballooned = false;
 
 static int S(int v) { return MulDiv(v, g_dpi, 96); }
 
@@ -133,7 +136,8 @@ static void ComputeLayout(int w, int h) {
     L.btnRelease = { L.bottom.right - sw, by, L.bottom.right, by + bh };
     L.btnSave    = { L.btnRelease.left - S(8) - sw, by, L.btnRelease.left - S(8), by + bh };
 
-    L.chkTop = { L.right.left, L.right.bottom - S(26), L.right.right, L.right.bottom };
+    L.chkTop  = { L.right.left, L.right.bottom - S(26), L.right.right, L.right.bottom };
+    L.chkAuto = { L.right.left, L.right.bottom - S(54), L.right.right, L.right.bottom - S(26) };
 }
 
 // ---------------- 绘制 ----------------
@@ -242,6 +246,33 @@ static void DrawCurveCard(HDC dc) {
     }
 }
 
+static void DrawCheck(HDC dc, RECT row, const wchar_t* label, bool on) {
+    RECT box = { row.left + S(16), row.top + S(6),
+                 row.left + S(16) + S(13), row.top + S(19) };
+    HBRUSH b = CreateSolidBrush(on ? C_ACCENT : C_CARD);
+    HPEN p = CreatePen(PS_SOLID, 1, on ? C_ACCENT : C_BORDER);
+    HGDIOBJ ob = SelectObject(dc, b);
+    HGDIOBJ op = SelectObject(dc, p);
+    RoundRect(dc, box.left, box.top, box.right, box.bottom, S(4), S(4));
+    SelectObject(dc, ob);
+    SelectObject(dc, op);
+    DeleteObject(b);
+    DeleteObject(p);
+
+    if (on) {
+        HPEN tick = CreatePen(PS_SOLID, S(2), RGB(255, 255, 255));
+        op = SelectObject(dc, tick);
+        MoveToEx(dc, box.left + S(3), box.top + S(7), NULL);
+        LineTo(dc, box.left + S(6), box.top + S(10));
+        LineTo(dc, box.left + S(10), box.top + S(3));
+        SelectObject(dc, op);
+        DeleteObject(tick);
+    }
+
+    RECT rt = { box.right + S(8), row.top, row.right, row.bottom };
+    Text(dc, label, rt, g_fSmall, C_MUTED, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+}
+
 static void DrawRightPanel(HDC dc) {
     FillRound(dc, L.right, S(12), C_CARD, C_BORDER);
 
@@ -298,36 +329,25 @@ static void DrawRightPanel(HDC dc) {
         y += S(26);
     }
 
-    RECT rh = { x, y + S(8), x + w, y + S(44) };
-    Text(dc, L"曲线值 0 表示交还 EC\n拖动圆点改转速，点保存写入配置", rh, g_fSmall, C_MUTED,
-         DT_LEFT | DT_TOP | DT_WORDBREAK);
+    // 使用说明
+    y += S(10);
+    HLine(dc, x, x + w, y, C_GRID);
+    y += S(12);
+    RECT rh = { x, y, x + w, y + S(16) };
+    Text(dc, L"使用说明", rh, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_SINGLELINE);
+    y += S(20);
+    RECT rb = { x, y, x + w, y + S(116) };
+    Text(dc, L"· 拖动圆点设定该温度下的目标转速\n"
+             L"· 曲线值为 0 表示交还 EC 控制\n"
+             L"· 点保存写入 settings.ini\n"
+             L"· 关闭或最小化会缩到托盘\n"
+             L"· 托盘图标右键可切换模式",
+         rb, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_WORDBREAK);
 
-    // 置顶勾选
-    bool on = g_app.topmost;
-    RECT box = { L.chkTop.left + S(16), L.chkTop.top + S(5),
-                 L.chkTop.left + S(16) + S(13), L.chkTop.top + S(18) };
-    HBRUSH b = CreateSolidBrush(on ? C_ACCENT : C_CARD);
-    HPEN p = CreatePen(PS_SOLID, 1, on ? C_ACCENT : C_BORDER);
-    HGDIOBJ ob = SelectObject(dc, b);
-    HGDIOBJ op = SelectObject(dc, p);
-    RoundRect(dc, box.left, box.top, box.right, box.bottom, S(4), S(4));
-    SelectObject(dc, ob);
-    SelectObject(dc, op);
-    DeleteObject(b);
-    DeleteObject(p);
-
-    if (on) {
-        HPEN tick = CreatePen(PS_SOLID, S(2), RGB(255, 255, 255));
-        op = SelectObject(dc, tick);
-        MoveToEx(dc, box.left + S(3), box.top + S(7), NULL);
-        LineTo(dc, box.left + S(6), box.top + S(10));
-        LineTo(dc, box.left + S(10), box.top + S(3));
-        SelectObject(dc, op);
-        DeleteObject(tick);
-    }
-
-    RECT rt = { box.right + S(8), L.chkTop.top, L.chkTop.right, L.chkTop.bottom };
-    Text(dc, L"窗口置顶", rt, g_fSmall, C_MUTED, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    // 勾选项
+    HLine(dc, x, x + w, L.chkAuto.top - S(10), C_GRID);
+    DrawCheck(dc, L.chkAuto, L"开机自启（免 UAC）", g_app.startWithWindows);
+    DrawCheck(dc, L.chkTop,  L"窗口置顶", g_app.topmost);
 }
 
 static void DrawButton(HDC dc, RECT r, const wchar_t* label, bool active, bool accent) {
@@ -498,10 +518,41 @@ static void OnClick(POINT p) {
         InvalidateRect(g_hwnd, NULL, FALSE);
         return;
     }
+    if (PtIn(L.chkAuto, p)) {
+        bool want = !g_app.startWithWindows;
+        if (AutoStartSet(want)) {
+            g_app.startWithWindows = want;
+            wcscpy_s(g_app.status, want ? L"已开启开机自启" : L"已关闭开机自启");
+        } else {
+            wcscpy_s(g_app.status, L"计划任务操作失败");
+            MessageBoxW(g_hwnd, L"无法修改开机自启的计划任务。\n请确认程序以管理员身份运行。",
+                        L"小新风扇控制", MB_ICONWARNING | MB_OK);
+        }
+        InvalidateRect(g_hwnd, NULL, FALSE);
+        return;
+    }
+}
+
+static void HideToTray() {
+    ShowWindow(g_hwnd, SW_HIDE);
+    if (!g_ballooned) {
+        g_ballooned = true;
+        TrayBalloon(L"仍在后台运行",
+                    L"风扇曲线继续生效。双击托盘图标可重新打开，右键可切换模式或退出。");
+    }
+}
+
+static void ShowFromTray() {
+    ShowWindow(g_hwnd, SW_SHOW);
+    ShowWindow(g_hwnd, SW_RESTORE);
+    SetForegroundWindow(g_hwnd);
+    InvalidateRect(g_hwnd, NULL, FALSE);
 }
 
 // ---------------- 窗口过程 ----------------
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg != WM_CREATE && TrayHandleMessage(hwnd, msg, wp, lp)) return 0;
+
     switch (msg) {
     case WM_CREATE: {
         g_hwnd = hwnd;
@@ -519,6 +570,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         ConfigLoad();
         g_app.sensorOk = SensorInit();
         g_app.fanOk = FanInit();
+        g_app.startWithWindows = AutoStartIsEnabled();
+        TrayInit(hwnd);
+        if (HICON ib = TrayAppIcon(false)) SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)ib);
+        if (HICON is = TrayAppIcon(true))  SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)is);
 
         RECT rc;
         GetClientRect(hwnd, &rc);
@@ -548,6 +603,27 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_TIMER:
         Poll();
+        {
+            static int tick = 0;
+            if (++tick % 5 == 0) TrayUpdateTip();
+        }
+        return 0;
+    case WM_SYSCOMMAND:
+        if ((wp & 0xFFF0) == SC_MINIMIZE) { HideToTray(); return 0; }
+        break;
+    case WM_CLOSE:
+        HideToTray();
+        return 0;
+    case WM_FANCTRL_SHOW:
+        ShowFromTray();
+        return 0;
+    case WM_FANCTRL_MODE:
+        g_app.mode = (RunMode)wp;
+        g_app.zeroCount = 0;
+        Poll();
+        return 0;
+    case WM_ENDSESSION:
+        if (wp) FanRelease();
         return 0;
     case WM_SETCURSOR:
         if (LOWORD(lp) == HTCLIENT) {
@@ -595,6 +671,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_DESTROY:
         KillTimer(hwnd, 1);
+        TrayRemove();
         FanRelease();
         FanClose();
         SensorClose();
@@ -605,6 +682,26 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
+    // 单实例：已在运行则唤出已有窗口
+    HANDLE mutex = CreateMutexW(NULL, TRUE, L"FanCtrl_SingleInstance");
+    if (mutex && GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND prev = FindWindowW(L"FanCtrlWnd", NULL);
+        if (prev) PostMessageW(prev, WM_FANCTRL_SHOW, 0, 0);
+        return 0;
+    }
+
+    // 命令行：/tray 表示启动后直接进托盘（开机自启用）
+    bool startHidden = false;
+    {
+        int argc = 0;
+        LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+        if (argv) {
+            for (int i = 1; i < argc; i++)
+                if (_wcsicmp(argv[i], L"/tray") == 0) startHidden = true;
+            LocalFree(argv);
+        }
+    }
+
     typedef BOOL (WINAPI* SetDpiCtx_t)(HANDLE);
     HMODULE user32 = LoadLibraryW(L"user32.dll");
     if (user32) {
@@ -645,8 +742,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
                                 NULL, NULL, hInst, NULL);
     if (!hwnd) return 1;
 
-    ShowWindow(hwnd, SW_SHOW);
-    UpdateWindow(hwnd);
+    if (startHidden) {
+        ShowWindow(hwnd, SW_HIDE);
+    } else {
+        ShowWindow(hwnd, SW_SHOW);
+        UpdateWindow(hwnd);
+    }
 
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {

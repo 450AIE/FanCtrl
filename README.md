@@ -28,6 +28,11 @@ BIOS STCN29WW，Windows 11 26300。
 - 超温保护：温度达到阈值（默认 92 ℃）自动交还 EC
 - 配置保存到 `settings.ini`，随 exe 同级
 - 可缩放窗口、可置顶
+- **托盘常驻**：关闭或最小化只缩到托盘，曲线继续生效；托盘图标悬停显示实时温度/转速，
+  右键可直接切模式、开关自启、退出
+- **开机自启**：以计划任务方式注册（当前用户 + 最高权限），开机后 20 秒自动进入托盘，
+  **不弹 UAC**
+- **单实例**：重复启动只会唤起已有窗口
 - 退出时自动交还 EC 控制
 
 ## 构建
@@ -45,6 +50,27 @@ build.cmd
 双击 `FanCtrl.exe`，程序会请求管理员权限（读写硬件接口必需）。
 
 首次运行会在同目录生成 `settings.ini`。
+
+命令行参数：
+
+| 参数 | 作用 |
+|---|---|
+| `/tray` | 启动后不进主界面，直接待机在托盘（开机自启用的就是它） |
+
+## 托盘与开机自启
+
+- 点窗口的 **×** 或 **最小化** 都只是缩到托盘，控制不中断。首次缩小时会弹一次气泡提示。
+- 托盘图标：**左键单击/双击**打开主窗口，**右键**弹出菜单（切模式、开机自启、退出）。
+- 主界面右侧勾选 **开机自启（免 UAC）** 即写入计划任务 `FanCtrl`：
+
+  ```
+  触发器    登录时，延迟 20 秒
+  主体      当前用户，RunLevel = 最高权限
+  动作      "…\FanCtrl.exe" /tray
+  ```
+
+  用的是进程内 `ITaskService` COM 接口注册，不起子进程、不弹控制台。
+  取消勾选即删除任务。任务状态不做缓存，每次启动都向系统查询。
 
 ## 技术实现
 
@@ -99,11 +125,22 @@ ROOT\WMI : LENOVO_OTHER_METHOD   (ACPI\PNP0C14\GMZN)
 
 ```
 FanCtrl/
-  src/        main.cpp  curve 绘制与交互、sensor.cpp 温度、fan.cpp WMI、config.cpp 配置
+  src/        main.cpp   窗口、绘制、交互、控制循环
+              tray.cpp   托盘图标（运行时绘制）、右键菜单、计划任务
+              sensor.cpp PawnIO + MSR 读温度
+              fan.cpp    WMI 读写风扇
+              config.cpp settings.ini 读写
+              app.h      共享状态与接口
   res/        app.rc、IntelMSR.bin
   build.cmd   一键编译
   .gitignore
 ```
+
+编译时加 `/DFANCTRL_DEBUG` 会额外输出 `tray_debug.log`、`fan_debug.log`，
+以及把生成的图标导出成 `icon_render.bmp` 便于检查。
+
+托盘图标不是外部资源，而是启动时用 4×4 超采样逐像素算出来的（蓝色圆底 + 白色三叶风扇），
+所以 exe 里没有 `.ico` 文件。
 
 ## 许可
 
