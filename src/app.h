@@ -13,14 +13,14 @@ constexpr int kFan2MaxRpm = 6000;
 
 // ---- 功耗曲线（主控）----
 // 横轴：封装功耗 W；纵轴：目标转速
-// 点位不均匀，0~30W 一段平线，30W 之后逐级抬升
-constexpr int kPPointCount = 7;
+// 点位等间距，10W 一个，便于按瓦数精确摆位
+constexpr int kPPointCount = 8;
 constexpr int kPEndW       = 70;
-constexpr int kPX[kPPointCount] = { 0, 30, 40, 50, 60, 65, 70 };
+constexpr int kPX[kPPointCount] = { 0, 10, 20, 30, 40, 50, 60, 70 };
 
 // 实测推荐曲线：室温 26-27℃，目标把温度压在 83-85℃
-// 依据：50W/3300rpm→84℃，60W/4800rpm→83℃，65W 满转兜底
-constexpr int kRecommended[kPPointCount] = { 2000, 2000, 2500, 3300, 4800, 6000, 6000 };
+// 依据：50W/3300rpm→84℃，60W/4800rpm→83℃，70W 满转兜底
+constexpr int kRecommended[kPPointCount] = { 2000, 2000, 2000, 2000, 2500, 3300, 4800, 6000 };
 
 // ---- 温度曲线（保留，仅作参考不再驱动风扇）----
 constexpr int kPointCount = 9;
@@ -41,7 +41,7 @@ enum RunMode {
 
 struct AppState {
     // 功耗曲线：每个点对应的目标转速
-    int  pPoints[kPPointCount] = { 2000, 2000, 2500, 3300, 4800, 6000, 6000 };
+    int  pPoints[kPPointCount] = { 2000, 2000, 2000, 2000, 2500, 3300, 4800, 6000 };
 
     // 温度曲线（保留但不再使用）
     int  points[kPointCount] = { 0, 0, 0, 1800, 2400, 3000, 3800, 4800, 6000 };

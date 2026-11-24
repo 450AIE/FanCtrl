@@ -41,6 +41,7 @@ struct Layout {
 static Layout L;
 
 static int g_drag = -1;      // 正在拖动的节点索引
+static int g_hover = -1;     // 鼠标悬停的节点索引
 static bool g_tracking = false;
 static bool g_ballooned = false;
 
@@ -110,7 +111,8 @@ static int RpmFromY(int y) {
     int h = L.plot.bottom - L.plot.top;
     if (h <= 0) return 0;
     double v = (double)(L.plot.bottom - y) / h * kRpmMax;
-    int rpm = (int)(v / 50.0 + 0.5) * 50;
+    // 按 500 转吸附，拖出来的曲线数值都是整百
+    int rpm = (int)(v / 500.0 + 0.5) * 500;
     if (rpm < 0) rpm = 0;
     if (rpm > kRpmMax) rpm = kRpmMax;
     return rpm;
@@ -154,6 +156,53 @@ static void ComputeLayout(int w, int h) {
 }
 
 // ---------------- 绘制 ----------------
+
+// 拖动/悬停时浮在节点旁的小信息框：功耗 + 该点转速
+static void DrawPointPopover(HDC dc, int idx) {
+    if (idx < 0 || idx >= kPPointCount) return;
+
+    int x = PlotX((double)kPX[idx]);
+    int y = PlotY(g_app.pPoints[idx]);
+
+    wchar_t l1[24], l2[24];
+    swprintf_s(l1, L"%d W", kPX[idx]);
+    swprintf_s(l2, L"%d rpm", g_app.pPoints[idx]);
+
+    int w = S(100), h = S(48);
+    int px = x - w / 2;
+    // 贴近左右边界时改成单侧摆放，别压到 Y 轴刻度或右侧面板
+    if (px < L.plot.left)       px = x + S(14);
+    if (px + w > L.plot.right)  px = x - S(14) - w;
+    if (px < L.card.left + S(6))       px = L.card.left + S(6);
+    if (px + w > L.card.right - S(6))  px = L.card.right - S(6) - w;
+
+    // 默认浮在节点上方；顶到卡片上沿就翻到下方
+    bool above = true;
+    int py = y - h - S(14);
+    if (py < L.card.top + S(6)) { above = false; py = y + S(18); }
+    if (py + h > L.plot.bottom + S(2)) py = L.plot.bottom + S(2) - h;
+
+    RECT box = { px, py, px + w, py + h };
+
+    // 小尾巴，指回节点
+    int tx = x;
+    if (tx < box.left + S(10)) tx = box.left + S(10);
+    if (tx > box.right - S(10)) tx = box.right - S(10);
+    HPEN cp = CreatePen(PS_SOLID, S(1), RGB(150, 185, 220));
+    HGDIOBJ oc = SelectObject(dc, cp);
+    if (above) { MoveToEx(dc, tx, box.bottom, NULL); LineTo(dc, tx, y - S(7)); }
+    else       { MoveToEx(dc, tx, box.top, NULL);    LineTo(dc, tx, y + S(7)); }
+    SelectObject(dc, oc);
+    DeleteObject(cp);
+
+    FillRound(dc, box, S(8), C_CARD, RGB(150, 185, 220));
+
+    RECT r1 = { box.left, box.top + S(6), box.right, box.top + S(22) };
+    Text(dc, l1, r1, g_fSmall, C_MUTED, DT_CENTER | DT_TOP | DT_SINGLELINE);
+    RECT r2 = { box.left, box.top + S(20), box.right, box.top + S(44) };
+    Text(dc, l2, r2, g_fValue, C_ACCENT, DT_CENTER | DT_TOP | DT_SINGLELINE);
+}
+
 static void DrawCurveCard(HDC dc) {
     FillRound(dc, L.card, S(12), C_CARD, C_BORDER);
 
@@ -173,7 +222,7 @@ static void DrawCurveCard(HDC dc) {
         Text(dc, buf, r, g_fSmall, C_MUTED, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
 
-    // X 轴功耗刻度
+    // X 轴功耗刻度：10W 一格，与圆点一一对应
     for (int w = 0; w <= kPEndW; w += 10) {
         int x = PlotX((double)w);
         if (w != 0 && w != kPEndW) {
@@ -184,12 +233,10 @@ static void DrawCurveCard(HDC dc) {
             SelectObject(dc, op);
             DeleteObject(p);
         }
-        if (w % 20 == 0 || w == kPEndW) {
-            wchar_t buf[16];
-            swprintf_s(buf, L"%dW", w);
-            RECT r = { x - S(20), L.plot.bottom + S(4), x + S(20), L.plot.bottom + S(22) };
-            Text(dc, buf, r, g_fSmall, C_MUTED, DT_CENTER | DT_TOP | DT_SINGLELINE);
-        }
+        wchar_t buf[16];
+        swprintf_s(buf, L"%dW", w);
+        RECT r = { x - S(20), L.plot.bottom + S(4), x + S(20), L.plot.bottom + S(22) };
+        Text(dc, buf, r, g_fSmall, C_MUTED, DT_CENTER | DT_TOP | DT_SINGLELINE);
     }
 
     // 填充区域
@@ -262,6 +309,10 @@ static void DrawCurveCard(HDC dc) {
         DeleteObject(wb);
         DeleteObject(bp);
     }
+
+    // 拖动中优先，其次是悬停
+    int showIdx = (g_drag >= 0) ? g_drag : g_hover;
+    if (showIdx >= 0) DrawPointPopover(dc, showIdx);
 }
 
 static void DrawButton(HDC dc, RECT r, const wchar_t* label, bool active, bool accent);
@@ -367,7 +418,7 @@ static void DrawRightPanel(HDC dc) {
     HLine(dc, x, x + w, y, C_GRID);
     y += S(8);
     RECT rb = { x, y, x + w, y + S(56) };
-    Text(dc, L"· 拖动圆点设定该功耗下的转速\n"
+    Text(dc, L"· 圆点每 10W 一格，转速按 500 步进\n"
              L"· 88℃ 以上自动补偿转速\n"
              L"· 关闭或最小化会缩到托盘",
          rb, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_WORDBREAK);
@@ -617,8 +668,11 @@ static bool PtIn(RECT r, POINT p) {
 }
 
 static int HitPoint(POINT p) {
-    if (p.y < L.plot.top - S(12) || p.y > L.plot.bottom + S(12)) return -1;
-    int best = -1, bestDx = S(16);
+    // 竖直方向只要求落在绘图区内（微调余量），水平方向取最近的列——
+    // 这样在节点上下方任意位置都能直接拖，不用精确压在小圆点上
+    if (p.y < L.plot.top - S(14) || p.y > L.plot.bottom + S(14)) return -1;
+    if (p.x < L.plot.left - S(10) || p.x > L.plot.right + S(10)) return -1;
+    int best = -1, bestDx = S(22);
     for (int i = 0; i < kPPointCount; i++) {
         int x = PlotX((double)kPX[i]);
         int dx = abs(p.x - x);
@@ -799,7 +853,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         POINT p = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
         int idx = HitPoint(p);
         if (idx >= 0) {
-            g_drag = idx;
+            g_drag  = idx;
+            g_hover = idx;
             SetCapture(hwnd);
             InvalidateRect(hwnd, NULL, FALSE);
             return 0;
@@ -819,10 +874,20 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             TrackMouseEvent(&tme);
             g_tracking = true;
         }
+        POINT p = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+        int idx = HitPoint(p);
+        if (idx != g_hover) {
+            g_hover = idx;
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
         return 0;
     }
     case WM_MOUSELEAVE:
         g_tracking = false;
+        if (g_hover >= 0) {
+            g_hover = -1;
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
         return 0;
     case WM_LBUTTONUP:
         if (g_drag >= 0) {

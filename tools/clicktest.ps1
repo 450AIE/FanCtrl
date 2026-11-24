@@ -144,4 +144,4 @@ Start-Sleep -Seconds 5
 "after stop:     $(F1) / $(F2)"
 
 $ini = Join-Path $Root 'settings.ini'
-"ini: $((Get-Content $ini) -join ' | ')"
+if (Test-Path $ini) { "ini: $((Get-Content $ini) -join ' | ')" } else { 'ini: 未生成（全部用默认值）' }
