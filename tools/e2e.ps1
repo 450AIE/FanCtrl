@@ -1,10 +1,12 @@
-param([int]$LoadSecs = 30, [switch]$Gpu)
+﻿param([int]$LoadSecs = 30, [switch]$Gpu)
 
 $ErrorActionPreference = 'Stop'
-$Root   = "C:\Users\11048\WorkBuddy\2026-11-24-18-26-56\FanCtrl"
+$AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root   = Split-Path -Parent $AppDir
 $exe    = Join-Path $Root 'FanCtrl.exe'
 $load   = Join-Path $Root 'tools\loadgen.exe'
-$lhmDll = "C:\Users\11048\WorkBuddy\2026-11-24-18-26-56\lhm\bin\LibreHardwareMonitorLib.dll"
+# LibreHardwareMonitorLib.dll 放在仓库同级目录，仅用于读 MSR 做对照
+$lhmDll = Join-Path (Split-Path -Parent $Root) 'lhm\bin\LibreHardwareMonitorLib.dll'
 
 Get-Process FanCtrl -ErrorAction SilentlyContinue | Stop-Process -Force -Confirm:$false
 Start-Sleep -Seconds 2

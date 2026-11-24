@@ -1,4 +1,4 @@
-param(
+﻿param(
     [int]$Threads = 16,
     [int]$Duty = 100,
     [int]$Secs = 90,

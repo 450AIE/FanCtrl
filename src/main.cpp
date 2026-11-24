@@ -35,7 +35,8 @@ static HFONT g_fLabel = NULL, g_fSmall = NULL, g_fBig = NULL, g_fValue = NULL;
 
 struct Layout {
     RECT card, plot, right, bottom;
-    RECT btnCurve, btnAuto, btnFull, btnSave, btnRelease, chkTop, chkAuto;
+    RECT btnCurve, btnAuto, btnFull, btnSave, btnRelease, btnRecommend, chkTop, chkAuto;
+    RECT btnPrevMinus, btnPrevToggle, btnPrevPlus;
 };
 static Layout L;
 
@@ -138,9 +139,18 @@ static void ComputeLayout(int w, int h) {
     int sw = S(86);
     L.btnRelease = { L.bottom.right - sw, by, L.bottom.right, by + bh };
     L.btnSave    = { L.btnRelease.left - S(8) - sw, by, L.btnRelease.left - S(8), by + bh };
+    L.btnRecommend = { L.btnSave.left - S(8) - sw, by, L.btnSave.left - S(8), by + bh };
 
     L.chkTop  = { L.right.left, L.right.bottom - S(26), L.right.right, L.right.bottom };
     L.chkAuto = { L.right.left, L.right.bottom - S(54), L.right.right, L.right.bottom - S(26) };
+
+    // 试听区：右侧面板底部，位于勾选项上方
+    int py = L.right.bottom - S(142);
+    int bx = L.right.left + S(16);
+    int pbw = (L.right.right - L.right.left - S(32) - S(8)) / 3;
+    L.btnPrevMinus  = { bx, py + S(48), bx + pbw, py + S(78) };
+    L.btnPrevToggle = { bx + pbw + S(4), py + S(48), bx + 2 * pbw + S(4), py + S(78) };
+    L.btnPrevPlus   = { bx + 2 * pbw + S(8), py + S(48), L.right.right - S(16), py + S(78) };
 }
 
 // ---------------- 绘制 ----------------
@@ -254,6 +264,8 @@ static void DrawCurveCard(HDC dc) {
     }
 }
 
+static void DrawButton(HDC dc, RECT r, const wchar_t* label, bool active, bool accent);
+
 static void DrawCheck(HDC dc, RECT row, const wchar_t* label, bool on) {
     RECT box = { row.left + S(16), row.top + S(6),
                  row.left + S(16) + S(13), row.top + S(19) };
@@ -353,13 +365,29 @@ static void DrawRightPanel(HDC dc) {
     // 使用说明
     y += S(6);
     HLine(dc, x, x + w, y, C_GRID);
-    y += S(10);
-    RECT rb = { x, y, x + w, y + S(80) };
+    y += S(8);
+    RECT rb = { x, y, x + w, y + S(56) };
     Text(dc, L"· 拖动圆点设定该功耗下的转速\n"
-             L"· 30W 以下固定最低转速\n"
              L"· 88℃ 以上自动补偿转速\n"
              L"· 关闭或最小化会缩到托盘",
          rb, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_WORDBREAK);
+
+    // 试听区
+    int py = L.right.bottom - S(142);
+    RECT rt = { x, py, x + w, py + S(16) };
+    Text(dc, L"试听转速（100 转步进）", rt, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_SINGLELINE);
+
+    int shown = (g_app.previewRpm > 0) ? g_app.previewRpm : 3000;
+    wchar_t pbuf[32];
+    swprintf_s(pbuf, L"%d rpm", shown);
+    RECT rv = { x, py + S(14), x + w, py + S(44) };
+    Text(dc, pbuf, rv, g_fValue,
+         g_app.previewRpm > 0 ? C_ACCENT : C_MUTED, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+    DrawButton(dc, L.btnPrevMinus, L"-100", false, false);
+    DrawButton(dc, L.btnPrevToggle, g_app.previewRpm > 0 ? L"停止" : L"试听",
+               g_app.previewRpm > 0, false);
+    DrawButton(dc, L.btnPrevPlus, L"+100", false, false);
 
     // 勾选项
     HLine(dc, x, x + w, L.chkAuto.top - S(10), C_GRID);
@@ -379,6 +407,7 @@ static void DrawBottomBar(HDC dc) {
     DrawButton(dc, L.btnCurve, L"功耗", g_app.mode == MODE_CURVE, false);
     DrawButton(dc, L.btnAuto,  L"自动", g_app.mode == MODE_AUTO,  false);
     DrawButton(dc, L.btnFull,  L"全速", g_app.mode == MODE_FULL,  false);
+    DrawButton(dc, L.btnRecommend, L"实测推荐", false, true);
     DrawButton(dc, L.btnSave,    L"保存曲线", false, false);
     DrawButton(dc, L.btnRelease, L"交还 EC",  false, true);
 }
@@ -431,6 +460,7 @@ static void ApplyControl() {
 
     if (g_app.mode == MODE_AUTO) {
         if (g_app.manual) { FanRelease(); g_app.manual = false; g_app.lastF1 = g_app.lastF2 = -1; }
+        g_app.previewRpm = 0;
         ResetPowerCtrl();
         wcscpy_s(g_app.status, L"交还 EC");
         g_app.target = -1;
@@ -445,9 +475,34 @@ static void ApplyControl() {
             g_app.lastF1 = kFan1MaxRpm;
             g_app.lastF2 = kFan2MaxRpm;
         }
+        g_app.previewRpm = 0;
         ResetPowerCtrl();
         wcscpy_s(g_app.status, L"全速运行");
         g_app.target = kRpmMax;
+        return;
+    }
+
+    // 试听模式：手动固定转速，优先级高于功耗曲线
+    if (g_app.previewRpm > 0) {
+        int rpm = g_app.previewRpm;
+        if (rpm < 2000)   rpm = 2000;
+        if (rpm > kRpmMax) rpm = kRpmMax;
+
+        int f1 = rpm * kFan1MaxRpm / kRpmMax;
+        int f2 = rpm * kFan2MaxRpm / kRpmMax;
+        if (f1 < 800) f1 = 800;
+        if (f2 < 800) f2 = 800;
+
+        if (!g_app.manual || g_app.lastF1 != f1 || g_app.lastF2 != f2) {
+            FanWriteRpm(0, f1);
+            FanWriteRpm(1, f2);
+            g_app.manual = true;
+            g_app.lastF1 = f1;
+            g_app.lastF2 = f2;
+        }
+        ResetPowerCtrl();
+        g_app.target = rpm;
+        wcscpy_s(g_app.status, L"试听模式");
         return;
     }
 
@@ -580,6 +635,35 @@ static void OnClick(POINT p) {
         ConfigSave();
         wcscpy_s(g_app.status, L"已保存");
         InvalidateRect(g_hwnd, NULL, FALSE);
+        return;
+    }
+    if (PtIn(L.btnRecommend, p)) {
+        for (int i = 0; i < kPPointCount; i++) g_app.pPoints[i] = kRecommended[i];
+        ConfigSave();
+        wcscpy_s(g_app.status, L"已应用推荐曲线");
+        Poll();
+        return;
+    }
+    if (PtIn(L.btnPrevToggle, p)) {
+        g_app.mode = MODE_CURVE;
+        g_app.previewRpm = (g_app.previewRpm > 0) ? 0 : 3000;
+        Poll();
+        return;
+    }
+    if (PtIn(L.btnPrevMinus, p)) {
+        g_app.mode = MODE_CURVE;
+        if (g_app.previewRpm <= 0) g_app.previewRpm = 3000;
+        g_app.previewRpm -= 100;
+        if (g_app.previewRpm < 2000) g_app.previewRpm = 2000;
+        Poll();
+        return;
+    }
+    if (PtIn(L.btnPrevPlus, p)) {
+        g_app.mode = MODE_CURVE;
+        if (g_app.previewRpm <= 0) g_app.previewRpm = 3000;
+        g_app.previewRpm += 100;
+        if (g_app.previewRpm > kRpmMax) g_app.previewRpm = kRpmMax;
+        Poll();
         return;
     }
     if (PtIn(L.btnRelease, p)) {
@@ -768,16 +852,27 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
         return 0;
     }
 
-    // 命令行：/tray 表示启动后直接进托盘（开机自启用）
+    // 命令行：/tray 启动后直接进托盘；/preview N 启动即进入试听模式
     bool startHidden = false;
+    int  previewArg = 0;
     {
         int argc = 0;
         LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
         if (argv) {
-            for (int i = 1; i < argc; i++)
-                if (_wcsicmp(argv[i], L"/tray") == 0) startHidden = true;
+            for (int i = 1; i < argc; i++) {
+                if (_wcsicmp(argv[i], L"/tray") == 0) {
+                    startHidden = true;
+                } else if (_wcsicmp(argv[i], L"/preview") == 0 && i + 1 < argc) {
+                    previewArg = _wtoi(argv[i + 1]);
+                }
+            }
             LocalFree(argv);
         }
+    }
+    if (previewArg > 0) {
+        if (previewArg < 2000) previewArg = 2000;
+        if (previewArg > kRpmMax) previewArg = kRpmMax;
+        g_app.previewRpm = previewArg;
     }
 
     typedef BOOL (WINAPI* SetDpiCtx_t)(HANDLE);

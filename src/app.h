@@ -18,6 +18,10 @@ constexpr int kPPointCount = 7;
 constexpr int kPEndW       = 70;
 constexpr int kPX[kPPointCount] = { 0, 30, 40, 50, 60, 65, 70 };
 
+// 实测推荐曲线：室温 26-27℃，目标把温度压在 83-85℃
+// 依据：50W/3300rpm→84℃，60W/4800rpm→83℃，65W 满转兜底
+constexpr int kRecommended[kPPointCount] = { 2000, 2000, 2500, 3300, 4800, 6000, 6000 };
+
 // ---- 温度曲线（保留，仅作参考不再驱动风扇）----
 constexpr int kPointCount = 9;
 constexpr int kTempMin    = 20;
@@ -37,7 +41,7 @@ enum RunMode {
 
 struct AppState {
     // 功耗曲线：每个点对应的目标转速
-    int  pPoints[kPPointCount] = { 2000, 2000, 2500, 4000, 5500, 6000, 6000 };
+    int  pPoints[kPPointCount] = { 2000, 2000, 2500, 3300, 4800, 6000, 6000 };
 
     // 温度曲线（保留但不再使用）
     int  points[kPointCount] = { 0, 0, 0, 1800, 2400, 3000, 3800, 4800, 6000 };
@@ -66,6 +70,8 @@ struct AppState {
     double gpuW    = 0.0;    // 核显
     double smoothW = 0.0;    // 平滑后的控制输入
     bool   powerOk = false;
+
+    int    previewRpm = 0;   // >0 表示试听模式，风扇固定在该转速
 
     bool sensorOk = false;
     bool fanOk    = false;

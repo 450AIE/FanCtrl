@@ -1,4 +1,4 @@
-param(
+﻿param(
     [int]$Secs = 40,
     [int]$Tail = 25,
     [int]$Threads = 16
