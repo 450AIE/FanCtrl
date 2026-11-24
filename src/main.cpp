@@ -111,8 +111,8 @@ static int RpmFromY(int y) {
     int h = L.plot.bottom - L.plot.top;
     if (h <= 0) return 0;
     double v = (double)(L.plot.bottom - y) / h * kRpmMax;
-    // 按 500 转吸附，拖出来的曲线数值都是整百
-    int rpm = (int)(v / 500.0 + 0.5) * 500;
+    // 按 100 转吸附，微调时不用再跟 500 的台阶较劲
+    int rpm = (int)(v / 100.0 + 0.5) * 100;
     if (rpm < 0) rpm = 0;
     if (rpm > kRpmMax) rpm = kRpmMax;
     return rpm;
@@ -211,13 +211,12 @@ static void DrawCurveCard(HDC dc) {
                 L.card.right - S(18), L.card.top + S(16) };
     Text(dc, L"功耗 → 转速", rt, g_fSmall, C_MUTED, DT_RIGHT | DT_TOP | DT_SINGLELINE);
 
-    // Y 轴转速刻度
-    const int rpms[5] = { 0, 1500, 3000, 4500, 6000 };
-    for (int i = 0; i < 5; i++) {
-        int y = PlotY(rpms[i]);
+    // Y 轴转速刻度：500 一格，方便按 100 微调时读位置
+    for (int rpm = 0; rpm <= kRpmMax; rpm += 500) {
+        int y = PlotY(rpm);
         HLine(dc, L.plot.left, L.plot.right, y, C_GRID);
         wchar_t buf[16];
-        swprintf_s(buf, L"%d", rpms[i]);
+        swprintf_s(buf, L"%d", rpm);
         RECT r = { L.card.left + S(6), y - S(8), L.plot.left - S(6), y + S(8) };
         Text(dc, buf, r, g_fSmall, C_MUTED, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
@@ -418,7 +417,7 @@ static void DrawRightPanel(HDC dc) {
     HLine(dc, x, x + w, y, C_GRID);
     y += S(8);
     RECT rb = { x, y, x + w, y + S(56) };
-    Text(dc, L"· 圆点每 10W 一格，转速按 500 步进\n"
+    Text(dc, L"· 圆点每 10W 一格，转速按 100 步进\n"
              L"· 88℃ 以上自动补偿转速\n"
              L"· 关闭或最小化会缩到托盘",
          rb, g_fSmall, C_MUTED, DT_LEFT | DT_TOP | DT_WORDBREAK);

@@ -35,7 +35,7 @@ void ConfigLoad() {
                 for (int i = 0; i < kPPointCount; i++) g_app.pPoints[i] = v[i];
             } else if (n == 7) {
                 // 旧格式是 0/30/40/50/60/65/70 七个不均匀点，按新网格 10W 重采样，
-                // 再按 500 转吸附，跟界面能拖出来的值保持一致
+                // 再按 100 转吸附，跟界面能拖出来的值保持一致
                 static const int oldX[7] = { 0, 30, 40, 50, 60, 65, 70 };
                 for (int i = 0; i < kPPointCount; i++) {
                     int x = kPX[i];
@@ -51,7 +51,7 @@ void ConfigLoad() {
                             }
                         }
                     }
-                    val = (val + 250) / 500 * 500;
+                    val = (val + 50) / 100 * 100;
                     if (val < 0) val = 0;
                     if (val > kRpmMax) val = kRpmMax;
                     g_app.pPoints[i] = val;
