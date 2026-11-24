@@ -3,3 +3,9 @@
 // IntelMSR.bin 是 PawnIO 的官方模块（Intel MSR 读写），随程序内嵌，运行时从资源加载。
 // 来源：LibreHardwareMonitor 内嵌的 LibreHardwareMonitor.Resources.PawnIo.IntelMSR.bin
 101 RCDATA "res\\IntelMSR.bin"
+
+// 程序图标（多尺寸，快捷方式/资源管理器/Alt-Tab 都取这个）
+1 ICON "res\\app.ico"
+
+// 应用程序清单：requireAdministrator + PerMonitorV2
+1 24 "res\\app.manifest"

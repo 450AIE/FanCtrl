@@ -47,7 +47,8 @@ build.cmd
 
 ## 运行
 
-双击 `FanCtrl.exe`，程序会请求管理员权限（读写硬件接口必需）。
+双击 `FanCtrl.exe`（或桌面快捷方式），会弹出 UAC 请求管理员权限——这是必需的，
+exe 内嵌了 `requireAdministrator` 清单，不加权限读不到温度也控制不了风扇。
 
 首次运行会在同目录生成 `settings.ini`。
 
@@ -131,7 +132,7 @@ FanCtrl/
               fan.cpp    WMI 读写风扇
               config.cpp settings.ini 读写
               app.h      共享状态与接口
-  res/        app.rc、IntelMSR.bin
+  res/        app.rc、app.ico（多尺寸图标）、app.manifest（管理员清单）、IntelMSR.bin
   build.cmd   一键编译
   .gitignore
 ```

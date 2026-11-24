@@ -571,9 +571,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         g_app.sensorOk = SensorInit();
         g_app.fanOk = FanInit();
         g_app.startWithWindows = AutoStartIsEnabled();
-        TrayInit(hwnd);
-        if (HICON ib = TrayAppIcon(false)) SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)ib);
-        if (HICON is = TrayAppIcon(true))  SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)is);
+        TrayInit(hwnd);   // 窗口/任务栏图标来自 exe 的 ICON 资源，这里只装托盘
 
         RECT rc;
         GetClientRect(hwnd, &rc);
@@ -716,7 +714,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = NULL;
     wc.lpszClassName = L"FanCtrlWnd";
-    wc.hIcon         = LoadIcon(NULL, IDI_APPLICATION);
+    wc.hIcon         = LoadIconW(hInst, MAKEINTRESOURCEW(1));
+    if (!wc.hIcon) wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    wc.hIconSm       = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                         GetSystemMetrics(SM_CXSMICON),
+                                         GetSystemMetrics(SM_CYSMICON), 0);
     if (!RegisterClassExW(&wc)) return 1;
 
     int dw = 900, dh = 580;
