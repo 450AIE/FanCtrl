@@ -1,0 +1,2 @@
+﻿tag,targetRpm,duty,tempAvg,tempMin,tempMax,driftLast30s,pkgW,fan1,fan2,settled
+repeat3500,3500,100,78.9,78,79,-1,40.9,3500,3500,yes

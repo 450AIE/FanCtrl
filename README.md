@@ -7,6 +7,8 @@ BIOS STCN29WW，Windows 11 26300。
 
 ![界面](docs/screenshot.png)
 
+> 实测数据（转速 ↔ 温度 ↔ 负载的完整关系）见 [docs/thermal.md](docs/thermal.md)。
+
 ## 为什么需要它
 
 小新原厂的风扇策略有两个硬伤：

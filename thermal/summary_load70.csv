@@ -1,0 +1,9 @@
+﻿tag,targetRpm,duty,tempAvg,tempMin,tempMax,driftLast30s,pkgW,fan1,fan2,settled
+load70,800,70,ABORT,,,,,,800
+load70,1000,70,ABORT,,,,,,1000
+load70,1200,70,ABORT,,,,,,1200
+load70,1400,70,ABORT,,,,,,1400
+load70,1600,70,ABORT,,,,,,1600
+load70,1900,70,89.9,89,90,0,37.3,1900,1900,yes
+load70,2300,70,84.4,82,86,-3,36.6,2300,2300,no
+load70,3000,70,77.2,77,78,0,36,3000,3000,yes

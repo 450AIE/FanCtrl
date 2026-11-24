@@ -1,0 +1,242 @@
+[
+ {
+  "tag": "q3_1500",
+  "rpm": 1500,
+  "duty": 30,
+  "t": 80.4,
+  "tend": 82,
+  "drift": 3,
+  "w": 27.04,
+  "settled": false
+ },
+ {
+  "tag": "q3_1500",
+  "rpm": 1500,
+  "duty": 50,
+  "t": 91.3,
+  "tend": 92,
+  "drift": 2,
+  "w": 34.129999999999995,
+  "settled": false
+ },
+ {
+  "tag": "load70",
+  "rpm": 800,
+  "duty": 70,
+  "t": 87.1,
+  "tend": 91,
+  "drift": 8,
+  "w": 40.81,
+  "settled": false
+ },
+ {
+  "tag": "load70",
+  "rpm": 1000,
+  "duty": 70,
+  "t": 92.1,
+  "tend": 95,
+  "drift": 6,
+  "w": 38.989999999999995,
+  "settled": false
+ },
+ {
+  "tag": "load70",
+  "rpm": 1200,
+  "duty": 70,
+  "t": 92.7,
+  "tend": 95,
+  "drift": 5,
+  "w": 38.739999999999995,
+  "settled": false
+ },
+ {
+  "tag": "load70",
+  "rpm": 1400,
+  "duty": 70,
+  "t": 93.6,
+  "tend": 95,
+  "drift": 3,
+  "w": 38.63,
+  "settled": false
+ },
+ {
+  "tag": "load70",
+  "rpm": 1600,
+  "duty": 70,
+  "t": 94.0,
+  "tend": 95,
+  "drift": 3,
+  "w": 39.65,
+  "settled": false
+ },
+ {
+  "tag": "load70",
+  "rpm": 1900,
+  "duty": 70,
+  "t": 89.9,
+  "tend": 90,
+  "drift": 0,
+  "w": 37.32,
+  "settled": true
+ },
+ {
+  "tag": "q3_2000",
+  "rpm": 2000,
+  "duty": 70,
+  "t": 90.7,
+  "tend": 90,
+  "drift": 0,
+  "w": 38.87,
+  "settled": true
+ },
+ {
+  "tag": "load70",
+  "rpm": 2300,
+  "duty": 70,
+  "t": 84.4,
+  "tend": 82,
+  "drift": -3,
+  "w": 36.56,
+  "settled": false
+ },
+ {
+  "tag": "load70",
+  "rpm": 3000,
+  "duty": 70,
+  "t": 77.2,
+  "tend": 77,
+  "drift": 0,
+  "w": 36.019999999999996,
+  "settled": true
+ },
+ {
+  "tag": "load100",
+  "rpm": 1200,
+  "duty": 100,
+  "t": 92.2,
+  "tend": 95,
+  "drift": 7,
+  "w": 42.739999999999995,
+  "settled": false
+ },
+ {
+  "tag": "load100",
+  "rpm": 1500,
+  "duty": 100,
+  "t": 92.5,
+  "tend": 95,
+  "drift": 5,
+  "w": 43.21,
+  "settled": false
+ },
+ {
+  "tag": "load100",
+  "rpm": 1800,
+  "duty": 100,
+  "t": 94.3,
+  "tend": 95,
+  "drift": 2,
+  "w": 43.46,
+  "settled": false
+ },
+ {
+  "tag": "q3_2000",
+  "rpm": 2000,
+  "duty": 100,
+  "t": 95.8,
+  "tend": 96,
+  "drift": 0,
+  "w": 43.35,
+  "settled": false
+ },
+ {
+  "tag": "load100",
+  "rpm": 2100,
+  "duty": 100,
+  "t": 91.3,
+  "tend": 92,
+  "drift": 1,
+  "w": 42.269999999999996,
+  "settled": true
+ },
+ {
+  "tag": "load100",
+  "rpm": 2500,
+  "duty": 100,
+  "t": 86.0,
+  "tend": 86,
+  "drift": 0,
+  "w": 41.53,
+  "settled": true
+ },
+ {
+  "tag": "calib",
+  "rpm": 3000,
+  "duty": 100,
+  "t": 76.0,
+  "tend": 77,
+  "drift": 1,
+  "w": 39.9,
+  "settled": true
+ },
+ {
+  "tag": "load100",
+  "rpm": 3000,
+  "duty": 100,
+  "t": 82.22222222222223,
+  "tend": 82,
+  "drift": 1,
+  "w": 41.91111111111111,
+  "settled": true
+ },
+ {
+  "tag": "smoke",
+  "rpm": 3000,
+  "duty": 100,
+  "t": 66.5,
+  "tend": 54,
+  "drift": -12,
+  "w": 36.12,
+  "settled": false
+ },
+ {
+  "tag": "load100",
+  "rpm": 3500,
+  "duty": 100,
+  "t": 77.1,
+  "tend": 77,
+  "drift": 0,
+  "w": 41.06,
+  "settled": true
+ },
+ {
+  "tag": "repeat3500",
+  "rpm": 3500,
+  "duty": 100,
+  "t": 78.9,
+  "tend": 78,
+  "drift": -1,
+  "w": 40.86,
+  "settled": true
+ },
+ {
+  "tag": "load100",
+  "rpm": 4500,
+  "duty": 100,
+  "t": 71.0,
+  "tend": 70,
+  "drift": 0,
+  "w": 39.54,
+  "settled": true
+ },
+ {
+  "tag": "load100",
+  "rpm": 6000,
+  "duty": 100,
+  "t": 65.0,
+  "tend": 65,
+  "drift": 0,
+  "w": 37.79,
+  "settled": true
+ }
+]

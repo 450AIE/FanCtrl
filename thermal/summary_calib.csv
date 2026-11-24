@@ -1,0 +1,2 @@
+﻿tag,targetRpm,duty,tempAvg,tempMin,tempMax,driftLast30s,pkgW,fan1,fan2,settled
+calib,3000,100,76,75,77,1,39.9,3000,3000,yes

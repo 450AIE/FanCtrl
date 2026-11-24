@@ -1,0 +1,3 @@
+﻿tag,targetRpm,duty,tempAvg,tempMin,tempMax,driftLast30s,pkgW,fan1,fan2,settled
+q3_2000,2000,70,90.7,90,95,0,38.9,2000,2000,yes
+q3_2000,2000,100,95.8,95,96,0,43.4,2000,2000,yes
