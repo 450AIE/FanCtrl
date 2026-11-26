@@ -4,6 +4,7 @@
 // 布局：左侧曲线编辑卡片 + 右侧数据面板 + 底部操作条
 
 #include "app.h"
+#include "log.h"
 #include <windowsx.h>
 #include <shellapi.h>
 #include <cmath>
@@ -828,7 +829,12 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         g_app.sensorOk = SensorInit();
         g_app.fanOk = FanInit();
         g_app.startWithWindows = AutoStartIsEnabled();
+        if (g_app.startWithWindows) AutoStartEnsure();   // 旧版任务定义在这里自愈
         TrayInit(hwnd);   // 窗口/任务栏图标来自 exe 的 ICON 资源，这里只装托盘
+
+        Logf(L"[init] dpi=%d sensorOk=%d fanOk=%d autostart=%d status=%s",
+             g_dpi, g_app.sensorOk ? 1 : 0, g_app.fanOk ? 1 : 0,
+             g_app.startWithWindows ? 1 : 0, g_app.status);
 
         RECT rc;
         GetClientRect(hwnd, &rc);
@@ -937,6 +943,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         return 0;
     case WM_DESTROY:
+        Logf(L"[exit] WM_DESTROY：交还 EC 控制");
         KillTimer(hwnd, 1);
         TrayRemove();
         FanRelease();
@@ -949,10 +956,23 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
+    LogInit();
+    {
+        DWORD sid = 0;
+        ProcessIdToSessionId(GetCurrentProcessId(), &sid);
+        wchar_t cwd[MAX_PATH] = {};
+        GetCurrentDirectoryW(MAX_PATH, cwd);
+        Logf(L"=== FanCtrl %s 启动 pid=%lu session=%lu elevated=%d",
+             kAppVersion, GetCurrentProcessId(), sid, IsProcessElevated() ? 1 : 0);
+        Logf(L"[start] cmdline=%s", GetCommandLineW());
+        Logf(L"[start] cwd=%s", cwd);
+    }
+
     // 单实例：已在运行则唤出已有窗口
     HANDLE mutex = CreateMutexW(NULL, TRUE, L"FanCtrl_SingleInstance");
     if (mutex && GetLastError() == ERROR_ALREADY_EXISTS) {
         HWND prev = FindWindowW(L"FanCtrlWnd", NULL);
+        Logf(L"[start] 已有实例在运行，转发显示请求后退出 hwnd=%p", (void*)prev);
         if (prev) PostMessageW(prev, WM_FANCTRL_SHOW, 0, 0);
         return 0;
     }
@@ -979,6 +999,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
         if (previewArg > kRpmMax) previewArg = kRpmMax;
         g_app.previewRpm = previewArg;
     }
+    if (startHidden) Logf(L"[start] /tray：直接进托盘");
 
     typedef BOOL (WINAPI* SetDpiCtx_t)(HANDLE);
     HMODULE user32 = LoadLibraryW(L"user32.dll");
@@ -999,7 +1020,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     wc.hIconSm       = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON,
                                          GetSystemMetrics(SM_CXSMICON),
                                          GetSystemMetrics(SM_CYSMICON), 0);
-    if (!RegisterClassExW(&wc)) return 1;
+    if (!RegisterClassExW(&wc)) {
+        Logf(L"[fatal] RegisterClassExW 失败 err=%lu", GetLastError());
+        return 1;
+    }
 
     int dw = 900, dh = 580;
     {
@@ -1022,7 +1046,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
                                 WS_OVERLAPPEDWINDOW,
                                 (sw - dw) / 2, (sh - dh) / 2, dw, dh,
                                 NULL, NULL, hInst, NULL);
-    if (!hwnd) return 1;
+    if (!hwnd) {
+        Logf(L"[fatal] CreateWindowExW 失败 err=%lu", GetLastError());
+        return 1;
+    }
 
     if (startHidden) {
         ShowWindow(hwnd, SW_HIDE);

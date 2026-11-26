@@ -4,6 +4,8 @@
 #include <windows.h>
 #include <cstdint>
 
+constexpr wchar_t kAppVersion[] = L"1.1.0";
+
 // ---- 转速规格 ----
 constexpr int kRpmMax = 6000;
 
@@ -112,6 +114,7 @@ void TrayUpdateTip();
 HICON TrayAppIcon(bool useSmall);
 bool AutoStartIsEnabled();
 bool AutoStartSet(bool enable);
+bool AutoStartEnsure();     // 已启用但定义是旧版本时，按当前定义重写一次
 
 // ---- 由功耗求目标转速 ----
 inline int PowerTargetRpm(double w) {

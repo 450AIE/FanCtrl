@@ -11,6 +11,8 @@
 #include <cwchar>
 #include <vector>
 #include <taskschd.h>
+#include <sddl.h>
+#include "log.h"
 
 #pragma comment(lib, "taskschd.lib")
 
@@ -308,8 +310,36 @@ static void ShowMenu(HWND hwnd) {
 
 // ---------------- 开机自启（任务计划 COM 接口） ----------------
 // 用 ITaskService 在进程内注册计划任务：
-//   触发 = 登录时（延迟 20 秒）  身份 = 当前用户  运行级别 = 最高
+//   触发1 = 该用户登录时（延迟 20 秒）——主通道
+//   触发2 = 会话解锁时              ——兜底：主通道没跑起来、或进程中途没了，解锁时补一次
+//   身份 = 当前用户 SID  运行级别 = 最高  错过就补跑 + 失败重试 3 次
 // 好处：不开子进程、不弹控制台、每次开机不弹 UAC。
+//
+// 定义里带版本标记（kTaskVerTag）：程序启动时若发现任务还是旧版本定义，
+// 会自动重写一遍，免得升级程序后还留着老的触发器配置。
+
+static const wchar_t* kTaskDesc   = L"FanCtrl 开机自启 v2：登录触发 + 解锁兜底，管理员权限运行（无 UAC 提示）";
+static const wchar_t* kTaskVerTag = L"FanCtrl 开机自启 v2";
+
+// 当前用户的 SID 字符串：比用户名可靠，不受域/本地账户重名影响
+static bool CurrentUserSid(wchar_t* out, int cch) {
+    HANDLE tok = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &tok)) return false;
+    BYTE buf[256] = {};
+    DWORD len = 0;
+    bool ok = false;
+    if (GetTokenInformation(tok, TokenUser, buf, sizeof(buf), &len)) {
+        TOKEN_USER* tu = (TOKEN_USER*)buf;
+        wchar_t* s = nullptr;
+        if (ConvertSidToStringSidW(tu->User.Sid, &s)) {
+            wcsncpy_s(out, (size_t)cch, s, _TRUNCATE);
+            LocalFree(s);
+            ok = true;
+        }
+    }
+    CloseHandle(tok);
+    return ok;
+}
 
 static ITaskService* OpenTaskService() {
     ITaskService* svc = nullptr;
@@ -365,15 +395,20 @@ bool AutoStartSet(bool enable) {
         BSTR name = SysAllocString(kTaskName);
 
         if (!enable) {
-            ok = SUCCEEDED(root->DeleteTask(name, 0));
+            HRESULT hrd = root->DeleteTask(name, 0);
+            ok = SUCCEEDED(hrd);
             if (!ok) ok = true;   // 本就不存在，视为成功
+            Logf(L"[task] 删除自启任务 hr=0x%08X", (unsigned)hrd);
         } else {
+            wchar_t sidS[128] = {};
+            bool haveSid = CurrentUserSid(sidS, 128);
+
             ITaskDefinition* def = nullptr;
             if (SUCCEEDED(svc->NewTask(0, &def)) && def) {
-                // 描述
+                // 描述（带版本标记，下次启动据此判断是否要重写）
                 IRegistrationInfo* ri = nullptr;
                 if (SUCCEEDED(def->get_RegistrationInfo(&ri)) && ri) {
-                    BSTR d = SysAllocString(L"FanCtrl 开机自启：以管理员权限恢复风扇曲线控制（无 UAC 提示）");
+                    BSTR d = SysAllocString(kTaskDesc);
                     ri->put_Description(d);
                     SysFreeString(d);
                     ri->Release();
@@ -390,18 +425,24 @@ bool AutoStartSet(bool enable) {
                 // 设置
                 ITaskSettings* st = nullptr;
                 if (SUCCEEDED(def->get_Settings(&st)) && st) {
-                    st->put_StartWhenAvailable(VARIANT_FALSE);
+                    st->put_StartWhenAvailable(VARIANT_TRUE);           // 错过了（关机/睡眠）也补跑
                     st->put_DisallowStartIfOnBatteries(VARIANT_FALSE);
                     st->put_StopIfGoingOnBatteries(VARIANT_FALSE);
                     st->put_RunOnlyIfIdle(VARIANT_FALSE);
                     st->put_MultipleInstances(TASK_INSTANCES_IGNORE_NEW);
+                    st->put_RestartCount(3);                            // 启动失败自动重试
                     BSTR lim = SysAllocString(L"PT0S");
                     st->put_ExecutionTimeLimit(lim);
                     SysFreeString(lim);
+                    BSTR rint = SysAllocString(L"PT1M");
+                    st->put_RestartInterval(rint);
+                    SysFreeString(rint);
                     st->Release();
                 }
 
-                // 触发器：登录后延迟 20 秒
+                // 触发器 1：该用户登录时，延迟 20 秒（等桌面和服务就绪）
+                // 触发器 2：会话解锁时兜底 —— 主通道没跑起来、或进程中途被结束，解锁即补
+                BSTR bsid = haveSid ? SysAllocString(sidS) : nullptr;
                 ITriggerCollection* tc = nullptr;
                 if (SUCCEEDED(def->get_Triggers(&tc)) && tc) {
                     ITrigger* trg = nullptr;
@@ -410,13 +451,25 @@ bool AutoStartSet(bool enable) {
                         if (SUCCEEDED(trg->QueryInterface(IID_ILogonTrigger, (void**)&lt)) && lt) {
                             BSTR delay = SysAllocString(L"PT20S");
                             lt->put_Delay(delay);
+                            if (bsid) lt->put_UserId(bsid);
                             SysFreeString(delay);
                             lt->Release();
                         }
                         trg->Release();
                     }
+                    trg = nullptr;
+                    if (SUCCEEDED(tc->Create(TASK_TRIGGER_SESSION_STATE_CHANGE, &trg)) && trg) {
+                        ISessionStateChangeTrigger* sct = nullptr;
+                        if (SUCCEEDED(trg->QueryInterface(IID_ISessionStateChangeTrigger, (void**)&sct)) && sct) {
+                            sct->put_StateChange(TASK_SESSION_UNLOCK);
+                            if (bsid) sct->put_UserId(bsid);
+                            sct->Release();
+                        }
+                        trg->Release();
+                    }
                     tc->Release();
                 }
+                if (bsid) SysFreeString(bsid);
 
                 // 动作：<exe> /tray
                 IActionCollection* ac = nullptr;
@@ -440,11 +493,8 @@ bool AutoStartSet(bool enable) {
                     ac->Release();
                 }
 
-                // 注册
-                wchar_t user[256] = {};
-                DWORD ucch = 256;
-                GetUserNameW(user, &ucch);
-                BSTR buser = SysAllocString(user);
+                // 注册：用 SID 而不是用户名，避免同名账户解析到别人
+                BSTR buser = SysAllocString(haveSid ? sidS : L"");
                 BSTR sddl  = SysAllocString(L"");
 
                 VARIANT vUser;
@@ -465,10 +515,15 @@ bool AutoStartSet(bool enable) {
                     name, def, TASK_CREATE_OR_UPDATE,
                     vUser, vPass, TASK_LOGON_INTERACTIVE_TOKEN, vSddl, &reg);
                 ok = SUCCEEDED(hr);
-                if (reg) reg->Release();
+                if (reg) {
+                    reg->put_Enabled(VARIANT_TRUE);   // 明确置为启用
+                    reg->Release();
+                }
                 SysFreeString(buser);
                 SysFreeString(sddl);
                 def->Release();
+                Logf(L"[task] 注册自启任务 hr=0x%08X ok=%d sid=%s", (unsigned)hr, ok,
+                     haveSid ? sidS : L"(取不到)");
                 if (!ok) {
                     wchar_t msg[256];
                     swprintf_s(msg, L"计划任务注册失败 0x%08X", (unsigned)hr);
@@ -482,6 +537,46 @@ bool AutoStartSet(bool enable) {
 
     if (svc) svc->Release();
     if (SUCCEEDED(hrCo)) CoUninitialize();
+    return ok;
+}
+
+// 任务定义是不是当前版本：读 XML 找版本标记
+static bool AutoStartIsCurrent() {
+    HRESULT hrCo = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    bool cur = false;
+
+    ITaskService* svc = OpenTaskService();
+    if (svc) {
+        ITaskFolder* root = GetRootFolder(svc);
+        if (root) {
+            IRegisteredTask* t = nullptr;
+            BSTR name = SysAllocString(kTaskName);
+            if (SUCCEEDED(root->GetTask(name, &t)) && t) {
+                BSTR xml = nullptr;
+                if (SUCCEEDED(t->get_Xml(&xml)) && xml) {
+                    cur = wcsstr(xml, kTaskVerTag) != nullptr;
+                    SysFreeString(xml);
+                }
+                t->Release();
+            }
+            SysFreeString(name);
+            root->Release();
+        }
+        svc->Release();
+    }
+
+    if (SUCCEEDED(hrCo)) CoUninitialize();
+    return cur;
+}
+
+// 自启开着、但定义是旧版本 → 按当前定义重写一次。
+// 升级程序后老任务不会自动变成新配置，靠这个自愈。
+bool AutoStartEnsure() {
+    if (!AutoStartIsEnabled()) return true;
+    if (AutoStartIsCurrent()) return true;
+    Logf(L"[task] 检测到旧版任务定义，按当前版本重写");
+    bool ok = AutoStartSet(true);
+    Logf(L"[task] 重写结果 %d", ok);
     return ok;
 }
 
@@ -528,6 +623,7 @@ bool TrayHandleMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (AutoStartSet(want)) {
                 g_app.startWithWindows = want;
                 wcscpy_s(g_app.status, want ? L"已开启开机自启" : L"已关闭开机自启");
+                Logf(L"[task] 用户切换自启 -> %d", want);
             } else {
                 wcscpy_s(g_app.status, L"计划任务操作失败");
                 MessageBoxW(hwnd, L"无法修改开机自启的计划任务。\n请确认程序以管理员身份运行。",

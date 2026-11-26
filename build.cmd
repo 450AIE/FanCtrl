@@ -32,7 +32,7 @@ if errorlevel 1 ( echo [错误] 资源编译失败 & pause & exit /b 1 )
 echo === 编译程序 ===
 cl /nologo /EHsc /std:c++17 /O2 /MT /W3 /utf-8 /DUNICODE /D_UNICODE ^
    /Fo:build\ /Fe:FanCtrl.exe ^
-   src\main.cpp src\sensor.cpp src\fan.cpp src\config.cpp src\tray.cpp ^
+   src\main.cpp src\sensor.cpp src\fan.cpp src\config.cpp src\tray.cpp src\log.cpp ^
    build\app.res ^
    /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib ole32.lib oleaut32.lib wbemuuid.lib shell32.lib advapi32.lib
 if errorlevel 1 ( echo [错误] 编译失败 & pause & exit /b 1 )
